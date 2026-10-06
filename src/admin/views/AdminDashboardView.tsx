@@ -510,6 +510,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 onClick={() => onNavigateView('content')}
                 className="w-full bg-[#F8F0D8] hover:bg-[#C9A24A]/20 border border-[#C9A24A]/25 text-[#00291E] font-medium text-xs py-2 px-3.5 rounded flex items-center gap-2.5 transition-colors"
               >
+                <Camera className="w-3.5 h-3.5 text-[#C9A24A]" />
+                <span>Upload & Change Website Logo</span>
+              </button>
+
+              <button
+                onClick={() => onNavigateView('content')}
+                className="w-full bg-[#F8F0D8] hover:bg-[#C9A24A]/20 border border-[#C9A24A]/25 text-[#00291E] font-medium text-xs py-2 px-3.5 rounded flex items-center gap-2.5 transition-colors"
+              >
                 <Edit className="w-3.5 h-3.5 text-[#003D2B]" />
                 <span>Edit Homepage Content</span>
               </button>

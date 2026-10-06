@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Save, CheckCircle2, Camera, ArrowRight, Sparkles } from 'lucide-react';
+import { Save, CheckCircle2, Camera, ArrowRight, Sparkles, Upload, Image as ImageIcon, RotateCcw, ShieldCheck, Check } from 'lucide-react';
 import { useStore } from '../../hooks/useStore';
 import { StoreService } from '../../services/store';
 import { WebsiteContent } from '../../types';
 import { AdminViewType } from '../AdminLayout';
+import { Logo } from '../../components/common/Logo';
 
 interface AdminContentViewProps {
   onNavigateView?: (view: AdminViewType) => void;
@@ -11,8 +12,52 @@ interface AdminContentViewProps {
 
 export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateView }) => {
   const { content } = useStore();
-  const [formData, setFormData] = useState<WebsiteContent>({ ...content });
+  const [formData, setFormData] = useState<WebsiteContent>({
+    ...content,
+    logoMode: content.logoMode || 'svg-brand',
+    customLogoImage: content.customLogoImage || '',
+    customLogoHeight: content.customLogoHeight || 44,
+    customLogoAlt: content.customLogoAlt || 'Velora Developers Logo',
+    showLogoTagline: content.showLogoTagline !== false,
+  });
   const [saved, setSaved] = useState(false);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid image file (PNG, SVG, JPG, WebP).');
+      return;
+    }
+
+    if (file.size > 4 * 1024 * 1024) {
+      alert('Image file size should be less than 4 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setFormData((prev) => ({
+        ...prev,
+        logoMode: 'custom-image',
+        customLogoImage: base64,
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleResetToDefaultLogo = () => {
+    setFormData((prev) => ({
+      ...prev,
+      logoMode: 'svg-brand',
+      customLogoImage: '',
+      customLogoHeight: 44,
+      showLogoTagline: true,
+    }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +72,7 @@ export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateVi
         <div>
           <h2 className="font-serif text-2xl text-[#00291E]">Website Content CMS</h2>
           <p className="text-xs text-[#26342D]/70 font-light mt-0.5">
-            Dynamically update hero headlines, promotional copy, featured project highlights, and lead form text.
+            Dynamically update website logo, hero headlines, promotional copy, featured project highlights, and lead form text.
           </p>
         </div>
 
@@ -68,6 +113,302 @@ export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateVi
       )}
 
       <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Section 0: Brand Logo & Website Identity */}
+        <div className="bg-[#FFF8E7] rounded-xl p-6 border-2 border-[#C9A24A]/40 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#C9A24A]/20 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-serif text-lg text-[#00291E] font-medium">
+                  Website Brand Logo & Identity
+                </h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-[#00291E] text-[#C9A24A] px-2 py-0.5 rounded border border-[#C9A24A]/40">
+                  Header & Footer
+                </span>
+              </div>
+              <p className="text-xs text-[#26342D]/70 font-light mt-0.5">
+                Upload your own official company logo image or use Velora's default luxury vector insignia.
+              </p>
+            </div>
+
+            {formData.customLogoImage && (
+              <button
+                type="button"
+                onClick={handleResetToDefaultLogo}
+                className="self-start sm:self-auto text-xs text-red-700 hover:text-red-900 flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-50 hover:bg-red-100 border border-red-200 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset to Default Logo</span>
+              </button>
+            )}
+          </div>
+
+          {/* Logo Mode Selection */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <label
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
+                formData.logoMode === 'svg-brand'
+                  ? 'bg-[#00291E] text-white border-[#C9A24A] shadow-md ring-2 ring-[#C9A24A]/40'
+                  : 'bg-[#F8F0D8] text-[#26342D] border-[#C9A24A]/30 hover:border-[#C9A24A]'
+              }`}
+            >
+              <input
+                type="radio"
+                name="logoMode"
+                value="svg-brand"
+                checked={formData.logoMode === 'svg-brand'}
+                onChange={() => setFormData({ ...formData, logoMode: 'svg-brand' })}
+                className="mt-0.5 accent-[#C9A24A]"
+              />
+              <div>
+                <span className="font-semibold block">Velora Official Master Emblem (Vector SVG)</span>
+                <span className="text-[11px] opacity-75 mt-0.5 block">
+                  Official Golden V with architectural skyscraper towers, VELORA wordmark with golden triangle, and tagline.
+                </span>
+              </div>
+            </label>
+
+            <label
+              className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
+                formData.logoMode === 'custom-image'
+                  ? 'bg-[#00291E] text-white border-[#C9A24A] shadow-md ring-2 ring-[#C9A24A]/40'
+                  : 'bg-[#F8F0D8] text-[#26342D] border-[#C9A24A]/30 hover:border-[#C9A24A]'
+              }`}
+            >
+              <input
+                type="radio"
+                name="logoMode"
+                value="custom-image"
+                checked={formData.logoMode === 'custom-image'}
+                onChange={() => setFormData({ ...formData, logoMode: 'custom-image' })}
+                className="mt-0.5 accent-[#C9A24A]"
+              />
+              <div>
+                <span className="font-semibold block">Custom Uploaded Logo Image</span>
+                <span className="text-[11px] opacity-75 mt-0.5 block">
+                  Upload your PNG, SVG, or WebP logo file to display across header and footer.
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+            <span className="text-[11px] text-[#26342D]/70 font-medium">Quick Presets:</span>
+            <button
+              type="button"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  logoMode: 'svg-brand',
+                  customLogoImage: '',
+                  showLogoTagline: true,
+                })
+              }
+              className={`px-3 py-1 rounded border text-[11px] font-semibold transition-colors ${
+                formData.logoMode === 'svg-brand' && !formData.customLogoImage
+                  ? 'bg-[#C9A24A] text-[#00291E] border-[#C9A24A]'
+                  : 'bg-[#F8F0D8] text-[#00291E] border-[#C9A24A]/30 hover:border-[#C9A24A]'
+              }`}
+            >
+              ★ Official Vector Artwork
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  logoMode: 'custom-image',
+                  customLogoImage: '/assets/velora-logo-light.svg',
+                  showLogoTagline: false,
+                })
+              }
+              className={`px-3 py-1 rounded border text-[11px] font-semibold transition-colors ${
+                formData.customLogoImage === '/assets/velora-logo-light.svg'
+                  ? 'bg-[#C9A24A] text-[#00291E] border-[#C9A24A]'
+                  : 'bg-[#F8F0D8] text-[#00291E] border-[#C9A24A]/30 hover:border-[#C9A24A]'
+              }`}
+            >
+              Dark Header SVG Asset
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  logoMode: 'custom-image',
+                  customLogoImage: '/assets/velora-logo.svg',
+                  showLogoTagline: false,
+                })
+              }
+              className={`px-3 py-1 rounded border text-[11px] font-semibold transition-colors ${
+                formData.customLogoImage === '/assets/velora-logo.svg'
+                  ? 'bg-[#C9A24A] text-[#00291E] border-[#C9A24A]'
+                  : 'bg-[#F8F0D8] text-[#00291E] border-[#C9A24A]/30 hover:border-[#C9A24A]'
+              }`}
+            >
+              Light / Navy SVG Asset
+            </button>
+          </div>
+
+          {/* Logo Upload & Controls */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-2">
+            {/* Upload & Settings (7 cols) */}
+            <div className="md:col-span-7 space-y-4 text-xs">
+              <div>
+                <label className="block text-[#00291E] font-semibold mb-1">
+                  Upload Logo File from Computer
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 px-4 py-2.5 bg-[#00291E] hover:bg-[#003D2B] text-[#C9A24A] font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer border border-[#C9A24A]/40 shadow-sm transition-all">
+                    <Upload className="w-4 h-4" />
+                    <span>Choose Logo File</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <span className="text-[11px] text-[#26342D]/60">
+                    Supports transparent PNG, SVG, WebP, JPG
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[#00291E] font-semibold mb-1">
+                  Or Paste Logo Image URL
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://example.com/logo.png"
+                  value={formData.customLogoImage || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      customLogoImage: e.target.value,
+                      logoMode: e.target.value.trim() ? 'custom-image' : formData.logoMode,
+                    })
+                  }
+                  className="w-full bg-[#F8F0D8] border border-[#C9A24A]/30 rounded p-2.5 outline-none focus:border-[#C9A24A]"
+                />
+              </div>
+
+              {/* Logo Height & Tagline Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[#00291E] font-semibold">
+                      Logo Display Height: <span className="text-[#0B4A36] font-mono">{formData.customLogoHeight || 44}px</span>
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min="28"
+                    max="72"
+                    step="2"
+                    value={formData.customLogoHeight || 44}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customLogoHeight: Number(e.target.value) })
+                    }
+                    className="w-full accent-[#C9A24A] cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-[#26342D]/60 mt-0.5">
+                    <span>Compact (28px)</span>
+                    <span>Standard (44px)</span>
+                    <span>Large (72px)</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[#00291E] font-semibold block mb-2">
+                    Tagline Display
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-[#26342D]">
+                    <input
+                      type="checkbox"
+                      checked={formData.showLogoTagline !== false}
+                      onChange={(e) =>
+                        setFormData({ ...formData, showLogoTagline: e.target.checked })
+                      }
+                      className="accent-[#C9A24A] w-4 h-4 rounded"
+                    />
+                    <span className="text-xs">Show "Turning Land Into Landmarks"</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Dimension Guidance */}
+              <div className="p-3 bg-[#F8F0D8] rounded-lg border border-[#C9A24A]/25 text-[11px] text-[#26342D]/80 space-y-1">
+                <span className="font-semibold text-[#00291E] block">
+                  Recommended Logo Specifications:
+                </span>
+                <p>
+                  • <strong>Dimensions:</strong> ~400 × 120 px horizontal (or ~200 × 200 px square/emblem).
+                </p>
+                <p>
+                  • <strong>Format:</strong> Transparent PNG or vector SVG with white or gold accents for maximum contrast on the dark emerald header.
+                </p>
+              </div>
+            </div>
+
+            {/* Live Dual Preview (5 cols) */}
+            <div className="md:col-span-5 space-y-3">
+              <span className="text-xs font-semibold text-[#00291E] block">
+                Live Logo Preview
+              </span>
+
+              {/* Preview 1: Dark Header Background */}
+              <div className="p-4 rounded-xl bg-[#00291E] border border-[#C9A24A]/40 flex flex-col items-center justify-center text-center shadow-inner min-h-[110px] relative overflow-hidden">
+                <span className="absolute top-2 left-2 text-[9px] font-mono text-[#C9A24A] uppercase tracking-wider bg-black/40 px-1.5 py-0.5 rounded">
+                  Dark Header
+                </span>
+                {formData.logoMode === 'custom-image' && formData.customLogoImage ? (
+                  <div className="flex flex-col items-center">
+                    <img
+                      src={formData.customLogoImage}
+                      alt="Logo preview"
+                      style={{ height: `${formData.customLogoHeight || 44}px` }}
+                      className="w-auto object-contain max-w-[220px]"
+                    />
+                    {formData.showLogoTagline !== false && (
+                      <span className="text-[7.5px] uppercase tracking-[0.3em] text-white/70 mt-1">
+                        Turning Land Into Landmarks
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <Logo variant="light" size="sm" showTagline={formData.showLogoTagline !== false} />
+                )}
+              </div>
+
+              {/* Preview 2: Light Background */}
+              <div className="p-4 rounded-xl bg-[#FFF8E7] border border-[#C9A24A]/30 flex flex-col items-center justify-center text-center shadow-inner min-h-[110px] relative overflow-hidden">
+                <span className="absolute top-2 left-2 text-[9px] font-mono text-[#00291E]/70 uppercase tracking-wider bg-[#F8F0D8] px-1.5 py-0.5 rounded border border-[#C9A24A]/20">
+                  Light Background
+                </span>
+                {formData.logoMode === 'custom-image' && formData.customLogoImage ? (
+                  <div className="flex flex-col items-center">
+                    <img
+                      src={formData.customLogoImage}
+                      alt="Logo preview"
+                      style={{ height: `${formData.customLogoHeight || 44}px` }}
+                      className="w-auto object-contain max-w-[220px]"
+                    />
+                    {formData.showLogoTagline !== false && (
+                      <span className="text-[7.5px] uppercase tracking-[0.3em] text-[#26342D]/70 mt-1">
+                        Turning Land Into Landmarks
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <Logo variant="dark" size="sm" showTagline={formData.showLogoTagline !== false} />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Section 1: Hero Section */}
         <div className="bg-[#FFF8E7] rounded-xl p-6 border border-[#C9A24A]/25 shadow-sm space-y-4">
           <h3 className="font-serif text-lg text-[#00291E] font-medium border-b border-[#C9A24A]/20 pb-2">

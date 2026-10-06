@@ -534,6 +534,12 @@ export const INITIAL_SITE_VISITS: SiteVisitRequest[] = [
 ];
 
 export const INITIAL_WEBSITE_CONTENT: WebsiteContent = {
+  logoMode: 'svg-brand',
+  customLogoImage: '',
+  customLogoHeight: 44,
+  customLogoAlt: 'Velora Developers Logo',
+  showLogoTagline: true,
+
   heroMode: 'text-and-image',
   heroSingleImage: ASSETS.heroEntrance,
   heroSingleImageAlt: 'Amrutvan Luxury Plotted Development Entrance at Dusk',

@@ -107,7 +107,7 @@ async function pushToServer(key: string, value: any): Promise<void> {
   }
 }
 
-// Full server sync: pull latest data from server, or if server is empty, push local data to server
+// Full server sync: pull latest data from Cloud SQL / server
 async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | 'local' | 'none' }> {
   if (typeof fetch === 'undefined') return { synced: false, source: 'none' };
   try {
@@ -118,39 +118,25 @@ async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | '
     const serverKeys = Object.keys(serverData);
 
     if (serverKeys.length > 0) {
-      // Server has data: update local memory cache, IndexedDB, and localStorage
+      // Cloud SQL has data: update local memory cache, IndexedDB, and localStorage
       let hasUpdates = false;
       for (const [key, val] of Object.entries(serverData)) {
         if (val !== undefined && val !== null) {
+          // Compare with memory cache to see if there is any new change
+          if (JSON.stringify(memoryCache[key]) !== JSON.stringify(val)) {
+            hasUpdates = true;
+          }
           memoryCache[key] = val;
           idbSave(key, val);
           try {
             localStorage.setItem(key, JSON.stringify(val));
           } catch {}
-          hasUpdates = true;
         }
       }
       if (hasUpdates) {
         window.dispatchEvent(new Event('velora_store_updated'));
       }
       return { synced: true, source: 'server' };
-    } else {
-      // Server is empty: push local snapshot to server so all other browsers can see it
-      const snapshot: Record<string, any> = {};
-      for (const key of Object.values(STORAGE_KEYS)) {
-        const localVal = memoryCache[key] ?? loadFromStorage(key, null);
-        if (localVal !== null && localVal !== undefined) {
-          snapshot[key] = localVal;
-        }
-      }
-      if (Object.keys(snapshot).length > 0) {
-        await fetch('/api/store', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(snapshot),
-        });
-        return { synced: true, source: 'local' };
-      }
     }
   } catch (err) {
     console.debug('[Store] Server sync note:', err);
@@ -173,7 +159,7 @@ if (typeof indexedDB !== 'undefined') {
       if (hasUpdates) {
         window.dispatchEvent(new Event('velora_store_updated'));
       }
-      // After local DB hydration, sync with backend server
+      // After local DB hydration, sync with backend Cloud SQL server immediately
       syncWithServer().catch(() => {});
     })
     .catch(() => {
@@ -181,6 +167,16 @@ if (typeof indexedDB !== 'undefined') {
     });
 } else if (typeof window !== 'undefined') {
   syncWithServer().catch(() => {});
+}
+
+// Auto-sync across multiple browsers, tabs, or devices on window focus and every 15s
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => {
+    syncWithServer().catch(() => {});
+  });
+  setInterval(() => {
+    syncWithServer().catch(() => {});
+  }, 15000);
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {

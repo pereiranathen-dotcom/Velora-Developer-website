@@ -167,6 +167,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             return (
               <button
                 key={item.id}
+                data-nav-view={item.id}
                 onClick={() => handleNav(item.id)}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium tracking-wide transition-all ${
                   isActive

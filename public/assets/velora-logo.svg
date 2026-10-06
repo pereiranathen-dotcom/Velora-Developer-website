@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Metallic Gold Gradients -->
+    <linearGradient id="goldLight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF3D1" />
+      <stop offset="30%" stop-color="#E5C572" />
+      <stop offset="60%" stop-color="#C9A24A" />
+      <stop offset="100%" stop-color="#9E761E" />
+    </linearGradient>
+
+    <linearGradient id="goldDark" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#EED58D" />
+      <stop offset="40%" stop-color="#C9A24A" />
+      <stop offset="80%" stop-color="#A77E24" />
+      <stop offset="100%" stop-color="#7A5610" />
+    </linearGradient>
+
+    <linearGradient id="goldShine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF9E6" />
+      <stop offset="50%" stop-color="#E5C778" />
+      <stop offset="100%" stop-color="#B88E2D" />
+    </linearGradient>
+
+    <linearGradient id="navyTower" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0A1622" />
+      <stop offset="50%" stop-color="#152433" />
+      <stop offset="100%" stop-color="#0A1622" />
+    </linearGradient>
+  </defs>
+
+  <!-- ========================================== -->
+  <!-- 1. EMBLEM: GOLDEN V WITH SKYSCRAPERS       -->
+  <!-- ========================================== -->
+  <g id="velora-emblem" transform="translate(0, 10)">
+    <!-- BACK/FLANKING NAVY SKYSCRAPERS -->
+    <!-- Far-left small navy tower -->
+    <polygon points="144,115 158,102 158,172 144,162" fill="url(#navyTower)" />
+    <!-- Left main navy skyscraper tower -->
+    <polygon points="158,102 184,80 184,185 158,172" fill="url(#navyTower)" />
+    <!-- Far-right small navy tower -->
+    <polygon points="242,102 256,115 256,162 242,172" fill="url(#navyTower)" />
+    <!-- Right main navy skyscraper tower -->
+    <polygon points="216,74 242,98 242,185 216,198" fill="url(#navyTower)" />
+    <!-- Architectural window slit highlights on right tower -->
+    <line x1="225" y1="88" x2="225" y2="188" stroke="#2B3E52" stroke-width="1.2" />
+    <line x1="233" y1="96" x2="233" y2="180" stroke="#2B3E52" stroke-width="1.2" />
+
+    <!-- CENTER TALLEST GOLDEN SKYSCRAPER -->
+    <!-- Left facet of center tower -->
+    <polygon points="184,40 200,24 200,205 184,192" fill="url(#goldLight)" />
+    <!-- Right facet of center tower -->
+    <polygon points="200,24 216,40 216,205 200,205" fill="url(#goldDark)" />
+    <!-- Lower foreground stepped gold tower -->
+    <polygon points="193,110 200,102 200,214 193,208" fill="url(#goldShine)" />
+    <polygon points="200,102 207,110 207,208 200,214" fill="url(#goldDark)" />
+
+    <!-- INNER GOLDEN CHEVRON (runs parallel inside the V) -->
+    <polygon points="200,226 156,134 167,126 200,198 233,126 244,134" fill="url(#goldLight)" />
+
+    <!-- OUTER FACETED GOLDEN V WITH SHARP FLARED WINGS -->
+    <!-- Left Wing Barb -->
+    <path d="M78,112 C98,110 120,104 138,94 L144,106 C126,116 104,122 84,124 Z" fill="url(#goldLight)" />
+    <!-- Right Wing Barb -->
+    <path d="M322,112 C302,110 280,104 262,94 L256,106 C274,116 296,122 316,124 Z" fill="url(#goldDark)" />
+
+    <!-- Left Main Diagonal Arm of V -->
+    <polygon points="138,94 200,246 190,246 126,108" fill="url(#goldLight)" />
+    <!-- Right Main Diagonal Arm of V -->
+    <polygon points="262,94 200,246 210,246 274,108" fill="url(#goldDark)" />
+
+    <!-- Outer Facet Highlights -->
+    <polygon points="138,94 154,92 200,226 190,246" fill="url(#goldShine)" opacity="0.9" />
+    <polygon points="262,94 246,92 200,226 210,246" fill="url(#goldLight)" opacity="0.9" />
+
+    <!-- Bottom Chevron Arrow Tip -->
+    <polygon points="200,258 190,238 210,238" fill="url(#goldLight)" />
+  </g>
+
+  <!-- ========================================== -->
+  <!-- 2. WORDMARK: "VELORA"                      -->
+  <!-- ========================================== -->
+  <g id="velora-wordmark">
+    <!-- Styled Roman Serif Text -->
+    <text
+      x="200"
+      y="298"
+      font-family="'Cinzel', 'Playfair Display', 'Times New Roman', 'Baskerville', serif"
+      font-size="62"
+      font-weight="700"
+      letter-spacing="9"
+      text-anchor="middle"
+      fill="#0B1B2B"
+    >VELORA</text>
+
+    <!-- TRADEMARK GOLDEN TRIANGLE INSIDE 'A' -->
+    <!-- Positioned precisely over the crossbar counter of the letter 'A' -->
+    <polygon points="289,274 280,289 298,289" fill="url(#goldLight)" />
+  </g>
+
+  <!-- ========================================== -->
+  <!-- 3. SUBTITLE: "— DEVELOPERS —"              -->
+  <!-- ========================================== -->
+  <g id="velora-developers" transform="translate(0, 326)">
+    <!-- Left Gold Line -->
+    <line x1="55" y1="-5" x2="115" y2="-5" stroke="url(#goldLight)" stroke-width="1.5" />
+    <!-- Text -->
+    <text
+      x="200"
+      y="0"
+      font-family="'Montserrat', 'Inter', 'Helvetica Neue', sans-serif"
+      font-size="16"
+      font-weight="600"
+      letter-spacing="9"
+      text-anchor="middle"
+      fill="url(#goldLight)"
+    >DEVELOPERS</text>
+    <!-- Right Gold Line -->
+    <line x1="285" y1="-5" x2="345" y2="-5" stroke="url(#goldDark)" stroke-width="1.5" />
+  </g>
+
+  <!-- ========================================== -->
+  <!-- 4. TAGLINE: "TURNING LAND INTO LANDMARKS"  -->
+  <!-- ========================================== -->
+  <g id="velora-tagline" transform="translate(0, 355)">
+    <!-- Decorative Center Diamond -->
+    <polygon points="200,-5 204,-1 200,3 196,-1" fill="url(#goldLight)" />
+    <!-- Left Hairline -->
+    <line x1="75" y1="-1" x2="190" y2="-1" stroke="url(#goldLight)" stroke-width="0.8" opacity="0.8" />
+    <!-- Right Hairline -->
+    <line x1="210" y1="-1" x2="325" y2="-1" stroke="url(#goldDark)" stroke-width="0.8" opacity="0.8" />
+
+    <!-- Tagline Text -->
+    <text
+      x="200"
+      y="18"
+      font-family="'Montserrat', 'Inter', 'Helvetica Neue', sans-serif"
+      font-size="9.5"
+      font-weight="500"
+      letter-spacing="3.8"
+      text-anchor="middle"
+      fill="#0B1B2B"
+    >TURNING LAND INTO LANDMARKS</text>
+  </g>
+</svg>

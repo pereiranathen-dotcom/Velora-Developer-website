@@ -201,6 +201,13 @@ export interface WhyChooseItem {
 }
 
 export interface WebsiteContent {
+  // Brand Logo & Identity
+  logoMode?: 'svg-brand' | 'custom-image';
+  customLogoImage?: string;
+  customLogoHeight?: number; // In pixels (default ~42px)
+  customLogoAlt?: string;
+  showLogoTagline?: boolean;
+
   // Home Page Photos & Hero Modes
   heroMode?: HeroBannerMode; // 'text-and-image' | 'single-image' | 'slideshow-image'
   heroSingleImage?: string;

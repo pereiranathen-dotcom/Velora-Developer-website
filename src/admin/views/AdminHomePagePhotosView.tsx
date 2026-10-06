@@ -511,7 +511,43 @@ export const AdminHomePagePhotosView: React.FC = () => {
             <span className="font-mono text-white font-semibold">1200×600 / 1080×1350</span>
             <span className="text-white/60 block text-[10px]">Banner / Vertical Flyer</span>
           </div>
+          <div className="bg-white/5 border border-white/10 p-2.5 rounded-lg">
+            <span className="text-[#C9A24A] font-bold block text-[10px] uppercase">9. Brand Logo Image</span>
+            <span className="font-mono text-white font-semibold">400 × 120 px</span>
+            <span className="text-white/60 block text-[10px]">Transparent PNG/SVG • &lt; 2.0 MB</span>
+          </div>
         </div>
+      </div>
+
+      {/* BRAND LOGO CARD */}
+      <div className="bg-[#00291E] text-white p-5 rounded-xl border border-[#C9A24A]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+        <div className="flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-lg bg-[#C9A24A]/20 border border-[#C9A24A]/40 text-[#C9A24A] flex items-center justify-center shrink-0">
+            <Camera className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-serif text-base text-[#F8F0D8]">Need to change or upload the Website Logo?</h4>
+              <span className="text-[10px] bg-[#C9A24A] text-[#00291E] font-bold px-2 py-0.5 rounded">NEW</span>
+            </div>
+            <p className="text-xs text-white/70 mt-0.5">
+              Upload your custom logo image (PNG, SVG), adjust display height (28-72px), or restore the Velora luxury vector emblem in Website Content CMS.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            window.location.hash = '';
+            // Dispatches or triggers navigation to Website Content
+            const btn = document.querySelector('[data-nav-view="content"]') as HTMLButtonElement;
+            if (btn) btn.click();
+          }}
+          className="bg-[#C9A24A] hover:bg-[#DDB75C] text-[#00291E] font-bold text-xs tracking-wider uppercase px-4 py-2.5 rounded shadow flex items-center gap-2 transition-all self-start sm:self-auto shrink-0"
+        >
+          <span>Manage Logo in Website CMS</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {/* PHOTO SECTION 1: HERO BANNER & DISPLAY MODES */}
