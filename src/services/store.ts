@@ -48,6 +48,57 @@ const STORAGE_KEYS = {
 const memoryCache: Record<string, any> = {};
 const IDB_STORE_NAME = 'app_keyval';
 const IDB_DB_NAME = 'velora_persistence_db';
+const REVISION_KEY = 'velora_revisions';
+
+// Session and account records stay on this browser. Publishing them would
+// sign every visitor in and expose account details.
+const PRIVATE_KEYS = new Set<string>([
+  STORAGE_KEYS.AUTH,
+  STORAGE_KEYS.ADMIN_USERS,
+  STORAGE_KEYS.CURRENT_USER,
+]);
+
+const localRevision: Record<string, string> = {};
+let syncQueue: Promise<void> = Promise.resolve();
+
+function isNewer(a?: string | null, b?: string | null): boolean {
+  if (!a) return false;
+  if (!b) return true;
+  const aTime = Date.parse(a);
+  const bTime = Date.parse(b);
+  if (Number.isNaN(aTime) || Number.isNaN(bTime)) return false;
+  return aTime > bTime;
+}
+
+function readRevisions(): Record<string, string> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(REVISION_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberRevision(key: string, iso: string) {
+  localRevision[key] = iso;
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const all = { ...readRevisions(), [key]: iso };
+    localStorage.setItem(REVISION_KEY, JSON.stringify(all));
+  } catch {
+    // Revision tracking is best-effort; the cloud write is the source of truth.
+  }
+}
+
+function revisionOf(key: string): string | undefined {
+  return localRevision[key] || readRevisions()[key];
+}
+
+function enqueueSync(task: () => Promise<void>): Promise<void> {
+  syncQueue = syncQueue.then(task, task);
+  return syncQueue;
+}
 
 function openPersistenceDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -108,85 +159,133 @@ async function pushToServer(key: string, value: any): Promise<void> {
   }
 }
 
-// Push to Supabase
-async function pushToSupabase(key: string, value: any): Promise<void> {
+function cacheValue(key: string, value: any) {
+  memoryCache[key] = value;
+  idbSave(key, value);
   try {
-    const { error } = await supabase
-      .from('app_store')
-      .upsert({ key, data: value, updated_at: new Date().toISOString() });
-    if (error && error.code !== 'PGRST205') {
-      console.debug(`[Supabase] Upsert note for ${key}:`, error.message);
-    }
-  } catch (err) {
-    console.debug(`[Supabase] Push note for ${key}:`, err);
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // IndexedDB already holds large photo payloads when localStorage is full.
   }
 }
 
-// Pull latest data directly from Supabase
+// Push to Supabase. Public content is not published until this succeeds.
+async function pushToSupabase(key: string, value: any, updatedAt: string): Promise<boolean> {
+  if (PRIVATE_KEYS.has(key)) return true;
+  try {
+    const { error } = await supabase.from('app_store').upsert(
+      { key, data: value, updated_at: updatedAt },
+      { onConflict: 'key' }
+    );
+    if (error) {
+      console.warn(`[Supabase] Could not publish ${key}:`, error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`[Supabase] Could not publish ${key}:`, err);
+    return false;
+  }
+}
+
+function applyRemoteRow(key: string, value: any, updatedAt?: string | null) {
+  if (PRIVATE_KEYS.has(key)) return false;
+  if (updatedAt && isNewer(revisionOf(key), updatedAt)) return false;
+  cacheValue(key, value);
+  if (updatedAt) rememberRevision(key, updatedAt);
+  return true;
+}
+
+// Pull latest public content. Metadata is fetched first so one large photo
+// record cannot block every other update.
 async function syncWithSupabase(): Promise<boolean> {
   try {
-    const { data, error } = await supabase.from('app_store').select('*');
-    if (!error && Array.isArray(data) && data.length > 0) {
-      for (const row of data) {
-        if (row?.key && row?.data !== undefined) {
-          memoryCache[row.key] = row.data;
-          idbSave(row.key, row.data);
-          try {
-            localStorage.setItem(row.key, JSON.stringify(row.data));
-          } catch {}
-        }
+    const { data: meta, error } = await supabase.from('app_store').select('key,updated_at');
+    if (error || !Array.isArray(meta) || meta.length === 0) return false;
+
+    let changed = false;
+    for (const row of meta) {
+      const key = row?.key as string | undefined;
+      const remoteAt = row?.updated_at as string | undefined;
+      if (!key || PRIVATE_KEYS.has(key)) continue;
+
+      const localAt = revisionOf(key);
+      const adminSession =
+        typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEYS.AUTH) === 'true';
+      // Photos saved before cloud publishing existed live only in this admin browser.
+      // Send that copy up once, instead of replacing it with the older public version.
+      if (adminSession && !localAt && memoryCache[key] !== undefined) {
+        const publishedAt = new Date().toISOString();
+        rememberRevision(key, publishedAt);
+        const published = await pushToSupabase(key, memoryCache[key], publishedAt);
+        if (published) continue;
       }
-      window.dispatchEvent(new Event('velora_store_updated'));
-      return true;
+      if (isNewer(localAt, remoteAt)) {
+        if (memoryCache[key] !== undefined && localAt) {
+          pushToSupabase(key, memoryCache[key], localAt).catch(() => {});
+        }
+        continue;
+      }
+      if (
+        localAt &&
+        remoteAt &&
+        !Number.isNaN(Date.parse(localAt)) &&
+        Date.parse(localAt) === Date.parse(remoteAt) &&
+        memoryCache[key] !== undefined
+      ) {
+        continue;
+      }
+
+      const { data, error: rowError } = await supabase
+        .from('app_store')
+        .select('data,updated_at')
+        .eq('key', key)
+        .maybeSingle();
+      if (rowError || !data || data.data === undefined) continue;
+      if (applyRemoteRow(key, data.data, data.updated_at)) changed = true;
     }
+
+    if (changed && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('velora_store_updated'));
+    }
+    return true;
   } catch (err) {
-    console.debug('[Supabase] Sync note:', err);
+    console.warn('[Supabase] Sync failed:', err);
+    return false;
   }
-  return false;
 }
 
-// Full server sync: pull latest data from Supabase, Cloud SQL, or Express server
+// Full server sync: Supabase is the copy every visitor reads.
 async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | 'supabase' | 'local' | 'none' }> {
-  // 1. Try Supabase first
-  const supabaseSynced = await syncWithSupabase();
-  if (supabaseSynced) {
-    return { synced: true, source: 'supabase' };
-  }
+  let source: 'server' | 'supabase' | 'local' | 'none' = 'none';
+  await enqueueSync(async () => {
+    const supabaseSynced = await syncWithSupabase();
+    if (supabaseSynced) {
+      source = 'supabase';
+      return;
+    }
 
-  // 2. Fallback to Express / Cloud SQL API
-  if (typeof fetch === 'undefined') return { synced: false, source: 'none' };
-  try {
-    const res = await fetch('/api/store');
-    if (!res.ok) return { synced: false, source: 'none' };
-    const json = await res.json();
-    const serverData: Record<string, any> = json?.data || {};
-    const serverKeys = Object.keys(serverData);
-
-    if (serverKeys.length > 0) {
-      // Cloud SQL has data: update local memory cache, IndexedDB, and localStorage
+    if (typeof fetch === 'undefined') return;
+    try {
+      const res = await fetch('/api/store');
+      if (!res.ok) return;
+      const json = await res.json();
+      const serverData: Record<string, any> = json?.data || {};
       let hasUpdates = false;
       for (const [key, val] of Object.entries(serverData)) {
-        if (val !== undefined && val !== null) {
-          // Compare with memory cache to see if there is any new change
-          if (JSON.stringify(memoryCache[key]) !== JSON.stringify(val)) {
-            hasUpdates = true;
-          }
-          memoryCache[key] = val;
-          idbSave(key, val);
-          try {
-            localStorage.setItem(key, JSON.stringify(val));
-          } catch {}
-        }
+        if (val === undefined || val === null || PRIVATE_KEYS.has(key)) continue;
+        if (JSON.stringify(memoryCache[key]) !== JSON.stringify(val)) hasUpdates = true;
+        cacheValue(key, val);
       }
-      if (hasUpdates) {
+      if (Object.keys(serverData).length > 0) source = 'server';
+      if (hasUpdates && typeof window !== 'undefined') {
         window.dispatchEvent(new Event('velora_store_updated'));
       }
-      return { synced: true, source: 'server' };
+    } catch (err) {
+      console.debug('[Store] Server sync note:', err);
     }
-  } catch (err) {
-    console.debug('[Store] Server sync note:', err);
-  }
-  return { synced: false, source: 'none' };
+  });
+  return { synced: source !== 'none', source };
 }
 
 // Setup Supabase Realtime Listener across all browsers & tabs
@@ -199,12 +298,7 @@ if (typeof window !== 'undefined') {
         { event: '*', schema: 'public', table: 'app_store' },
         (payload: any) => {
           const newRow = payload?.new;
-          if (newRow?.key && newRow?.data !== undefined) {
-            memoryCache[newRow.key] = newRow.data;
-            idbSave(newRow.key, newRow.data);
-            try {
-              localStorage.setItem(newRow.key, JSON.stringify(newRow.data));
-            } catch {}
+          if (newRow?.key && newRow?.data !== undefined && applyRemoteRow(newRow.key, newRow.data, newRow.updated_at)) {
             window.dispatchEvent(new Event('velora_store_updated'));
           }
         }
@@ -215,33 +309,30 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Background hydration: Load persistent data from IndexedDB on startup, then sync with server
-if (typeof indexedDB !== 'undefined') {
-  openPersistenceDB()
-    .then(async () => {
-      let hasUpdates = false;
-      for (const key of Object.values(STORAGE_KEYS)) {
-        const storedVal = await idbLoad(key);
-        if (storedVal !== undefined && storedVal !== null) {
-          memoryCache[key] = storedVal;
-          hasUpdates = true;
-        }
-      }
-      if (hasUpdates) {
-        window.dispatchEvent(new Event('velora_store_updated'));
-      }
-      // After local DB hydration, sync with backend Cloud SQL server immediately
-      syncWithServer().catch(() => {});
-    })
-    .catch(() => {
-      syncWithServer().catch(() => {});
-    });
-} else if (typeof window !== 'undefined') {
-  syncWithServer().catch(() => {});
+async function hydrateLocalCache() {
+  if (typeof indexedDB === 'undefined') return;
+  let hasUpdates = false;
+  for (const key of Object.values(STORAGE_KEYS)) {
+    if (PRIVATE_KEYS.has(key) || memoryCache[key] !== undefined) continue;
+    const storedVal = await idbLoad(key);
+    if (storedVal !== undefined && storedVal !== null) {
+      memoryCache[key] = storedVal;
+      hasUpdates = true;
+    }
+  }
+  if (hasUpdates && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('velora_store_updated'));
+  }
 }
 
-// Auto-sync across multiple browsers, tabs, or devices on window focus and every 15s
+// Local cache first, then the shared database so a slow photo download cannot
+// put an older copy back on screen.
 if (typeof window !== 'undefined') {
+  enqueueSync(async () => {
+    await hydrateLocalCache();
+    await syncWithSupabase();
+  }).catch(() => {});
+
   window.addEventListener('focus', () => {
     syncWithServer().catch(() => {});
   });
@@ -268,32 +359,18 @@ function loadFromStorage<T>(key: string, defaultValue: T): T {
   }
 }
 
-function saveToStorage<T>(key: string, value: T): void {
-  // 1. Immediately update memory cache
-  memoryCache[key] = value;
-
-  // 2. Persist to IndexedDB (virtually unlimited quota for large photos/base64)
-  idbSave(key, value);
-
-  // 3. Try to save to localStorage as well
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err: any) {
-    console.warn(`Storage quota note for ${key}:`, err?.message || err);
-    try {
-      localStorage.removeItem('velora_temp');
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // IndexedDB has already persisted the data securely
-    }
+function saveToStorage<T>(key: string, value: T): Promise<boolean> {
+  const updatedAt = new Date().toISOString();
+  cacheValue(key, value);
+  if (!PRIVATE_KEYS.has(key)) rememberRevision(key, updatedAt);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('velora_store_updated'));
   }
 
-  // 4. Send to backend Express server and Supabase so all browsers receive it
-  pushToServer(key, value).catch(() => {});
-  pushToSupabase(key, value).catch(() => {});
+  if (PRIVATE_KEYS.has(key)) return Promise.resolve(true);
 
-  // 5. Trigger window event so all subscribed components update reactively
-  window.dispatchEvent(new Event('velora_store_updated'));
+  pushToServer(key, value).catch(() => {});
+  return pushToSupabase(key, value, updatedAt);
 }
 
 export const StoreService = {
@@ -302,24 +379,20 @@ export const StoreService = {
     return syncWithServer();
   },
   pushAllToCloud: async (): Promise<boolean> => {
-    const snapshot: Record<string, any> = {};
+    const updatedAt = new Date().toISOString();
+    const jobs: Promise<boolean>[] = [];
     for (const key of Object.values(STORAGE_KEYS)) {
+      if (PRIVATE_KEYS.has(key)) continue;
       const localVal = memoryCache[key] ?? loadFromStorage(key, null);
       if (localVal !== null && localVal !== undefined) {
-        snapshot[key] = localVal;
-        pushToSupabase(key, localVal).catch(() => {});
+        rememberRevision(key, updatedAt);
+        jobs.push(pushToSupabase(key, localVal, updatedAt));
+        pushToServer(key, localVal).catch(() => {});
       }
     }
-    try {
-      const res = await fetch('/api/store', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(snapshot),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+    if (jobs.length === 0) return false;
+    const results = await Promise.all(jobs);
+    return results.every(Boolean);
   },
   // Projects
   getProjects: (): Project[] => {
@@ -329,7 +402,7 @@ export const StoreService = {
     const list = StoreService.getProjects();
     return list.find((p) => p.slug === slug || p.id === slug);
   },
-  saveProject: (project: Project): void => {
+  saveProject: (project: Project): Promise<boolean> => {
     const current = [...StoreService.getProjects()];
     const idx = current.findIndex(
       (p) => p.id === project.id || (p.slug && p.slug === project.slug)
@@ -339,21 +412,21 @@ export const StoreService = {
     } else {
       current.push(project);
     }
-    saveToStorage(STORAGE_KEYS.PROJECTS, current);
+    return saveToStorage(STORAGE_KEYS.PROJECTS, current);
   },
-  deleteProject: (id: string): void => {
+  deleteProject: (id: string): Promise<boolean> => {
     const filtered = StoreService.getProjects().filter((p) => p.id !== id && p.slug !== id);
-    saveToStorage(STORAGE_KEYS.PROJECTS, filtered);
+    return saveToStorage(STORAGE_KEYS.PROJECTS, filtered);
   },
 
   // Locations
   getLocations: (): LocationMilestone[] => {
     return loadFromStorage<LocationMilestone[]>(STORAGE_KEYS.LOCATIONS, INITIAL_LOCATIONS);
   },
-  saveLocations: (locations: LocationMilestone[]): void => {
-    saveToStorage(STORAGE_KEYS.LOCATIONS, locations);
+  saveLocations: (locations: LocationMilestone[]): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.LOCATIONS, locations);
   },
-  updateLocation: (loc: LocationMilestone): void => {
+  updateLocation: (loc: LocationMilestone): Promise<boolean> => {
     const list = StoreService.getLocations();
     const idx = list.findIndex((l) => l.id === loc.id);
     if (idx >= 0) {
@@ -361,18 +434,18 @@ export const StoreService = {
     } else {
       list.push(loc);
     }
-    saveToStorage(STORAGE_KEYS.LOCATIONS, list);
+    return saveToStorage(STORAGE_KEYS.LOCATIONS, list);
   },
-  deleteLocation: (id: string): void => {
+  deleteLocation: (id: string): Promise<boolean> => {
     const list = StoreService.getLocations().filter((l) => l.id !== id);
-    saveToStorage(STORAGE_KEYS.LOCATIONS, list);
+    return saveToStorage(STORAGE_KEYS.LOCATIONS, list);
   },
 
   // Gallery
   getGallery: (): GalleryItem[] => {
     return loadFromStorage<GalleryItem[]>(STORAGE_KEYS.GALLERY, INITIAL_GALLERY);
   },
-  saveGalleryItem: (item: GalleryItem): void => {
+  saveGalleryItem: (item: GalleryItem): Promise<boolean> => {
     const list = StoreService.getGallery();
     const idx = list.findIndex((g) => g.id === item.id);
     if (idx >= 0) {
@@ -380,18 +453,18 @@ export const StoreService = {
     } else {
       list.unshift(item);
     }
-    saveToStorage(STORAGE_KEYS.GALLERY, list);
+    return saveToStorage(STORAGE_KEYS.GALLERY, list);
   },
-  deleteGalleryItem: (id: string): void => {
+  deleteGalleryItem: (id: string): Promise<boolean> => {
     const list = StoreService.getGallery().filter((g) => g.id !== id);
-    saveToStorage(STORAGE_KEYS.GALLERY, list);
+    return saveToStorage(STORAGE_KEYS.GALLERY, list);
   },
 
   // Testimonials
   getTestimonials: (): Testimonial[] => {
     return loadFromStorage<Testimonial[]>(STORAGE_KEYS.TESTIMONIALS, INITIAL_TESTIMONIALS);
   },
-  saveTestimonial: (test: Testimonial): void => {
+  saveTestimonial: (test: Testimonial): Promise<boolean> => {
     const list = StoreService.getTestimonials();
     const idx = list.findIndex((t) => t.id === test.id);
     if (idx >= 0) {
@@ -399,18 +472,18 @@ export const StoreService = {
     } else {
       list.push(test);
     }
-    saveToStorage(STORAGE_KEYS.TESTIMONIALS, list);
+    return saveToStorage(STORAGE_KEYS.TESTIMONIALS, list);
   },
-  deleteTestimonial: (id: string): void => {
+  deleteTestimonial: (id: string): Promise<boolean> => {
     const list = StoreService.getTestimonials().filter((t) => t.id !== id);
-    saveToStorage(STORAGE_KEYS.TESTIMONIALS, list);
+    return saveToStorage(STORAGE_KEYS.TESTIMONIALS, list);
   },
 
   // Leads
   getLeads: (): Lead[] => {
     return loadFromStorage<Lead[]>(STORAGE_KEYS.LEADS, INITIAL_LEADS);
   },
-  saveLead: (lead: Lead): void => {
+  saveLead: (lead: Lead): Promise<boolean> => {
     const list = StoreService.getLeads();
     const idx = list.findIndex((l) => l.id === lead.id);
     if (idx >= 0) {
@@ -418,7 +491,7 @@ export const StoreService = {
     } else {
       list.unshift(lead);
     }
-    saveToStorage(STORAGE_KEYS.LEADS, list);
+    return saveToStorage(STORAGE_KEYS.LEADS, list);
   },
   addLead: (leadData: Omit<Lead, 'id' | 'date' | 'time' | 'status'> & { status?: Lead['status'] }): Lead => {
     const list = StoreService.getLeads();
@@ -439,25 +512,26 @@ export const StoreService = {
     saveToStorage(STORAGE_KEYS.LEADS, list);
     return newLead;
   },
-  updateLeadStatus: (id: string, status: Lead['status'], notes?: string): void => {
+  updateLeadStatus: (id: string, status: Lead['status'], notes?: string): Promise<boolean> => {
     const list = StoreService.getLeads();
     const item = list.find((l) => l.id === id);
     if (item) {
       item.status = status;
       if (notes !== undefined) item.notes = notes;
-      saveToStorage(STORAGE_KEYS.LEADS, list);
+      return saveToStorage(STORAGE_KEYS.LEADS, list);
     }
+    return Promise.resolve(false);
   },
-  deleteLead: (id: string): void => {
+  deleteLead: (id: string): Promise<boolean> => {
     const list = StoreService.getLeads().filter((l) => l.id !== id);
-    saveToStorage(STORAGE_KEYS.LEADS, list);
+    return saveToStorage(STORAGE_KEYS.LEADS, list);
   },
 
   // Site Visits
   getSiteVisits: (): SiteVisitRequest[] => {
     return loadFromStorage<SiteVisitRequest[]>(STORAGE_KEYS.SITE_VISITS, INITIAL_SITE_VISITS);
   },
-  saveSiteVisit: (visit: SiteVisitRequest): void => {
+  saveSiteVisit: (visit: SiteVisitRequest): Promise<boolean> => {
     const list = StoreService.getSiteVisits();
     const idx = list.findIndex((s) => s.id === visit.id);
     if (idx >= 0) {
@@ -465,7 +539,7 @@ export const StoreService = {
     } else {
       list.unshift(visit);
     }
-    saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
+    return saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
   },
   addSiteVisit: (data: Omit<SiteVisitRequest, 'id' | 'createdAt' | 'status'> & { status?: SiteVisitRequest['status'] }): SiteVisitRequest => {
     const list = StoreService.getSiteVisits();
@@ -479,26 +553,27 @@ export const StoreService = {
     saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
     return newReq;
   },
-  updateSiteVisitStatus: (id: string, status: SiteVisitRequest['status'], notes?: string): void => {
+  updateSiteVisitStatus: (id: string, status: SiteVisitRequest['status'], notes?: string): Promise<boolean> => {
     const list = StoreService.getSiteVisits();
     const item = list.find((s) => s.id === id);
     if (item) {
       item.status = status;
       if (notes !== undefined) item.notes = notes;
-      saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
+      return saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
     }
+    return Promise.resolve(false);
   },
-  deleteSiteVisit: (id: string): void => {
+  deleteSiteVisit: (id: string): Promise<boolean> => {
     const list = StoreService.getSiteVisits().filter((s) => s.id !== id);
-    saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
+    return saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
   },
 
   // Website Content
   getWebsiteContent: (): WebsiteContent => {
     return loadFromStorage<WebsiteContent>(STORAGE_KEYS.WEBSITE_CONTENT, INITIAL_WEBSITE_CONTENT);
   },
-  saveWebsiteContent: (content: WebsiteContent): void => {
-    saveToStorage(STORAGE_KEYS.WEBSITE_CONTENT, content);
+  saveWebsiteContent: (content: WebsiteContent): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.WEBSITE_CONTENT, content);
   },
 
   // Channel Partner Page Content
@@ -508,24 +583,24 @@ export const StoreService = {
       INITIAL_CHANNEL_PARTNER_CONTENT
     );
   },
-  saveChannelPartnerContent: (content: ChannelPartnerContent): void => {
-    saveToStorage(STORAGE_KEYS.CHANNEL_PARTNER_CONTENT, content);
+  saveChannelPartnerContent: (content: ChannelPartnerContent): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.CHANNEL_PARTNER_CONTENT, content);
   },
 
   // Contact Settings
   getContactSettings: (): ContactSettings => {
     return loadFromStorage<ContactSettings>(STORAGE_KEYS.CONTACT_SETTINGS, INITIAL_CONTACT_SETTINGS);
   },
-  saveContactSettings: (settings: ContactSettings): void => {
-    saveToStorage(STORAGE_KEYS.CONTACT_SETTINGS, settings);
+  saveContactSettings: (settings: ContactSettings): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.CONTACT_SETTINGS, settings);
   },
 
   // SEO Settings
   getSEOSettings: (): SEOSettings => {
     return loadFromStorage<SEOSettings>(STORAGE_KEYS.SEO_SETTINGS, INITIAL_SEO_SETTINGS);
   },
-  saveSEOSettings: (seo: SEOSettings): void => {
-    saveToStorage(STORAGE_KEYS.SEO_SETTINGS, seo);
+  saveSEOSettings: (seo: SEOSettings): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.SEO_SETTINGS, seo);
   },
 
   // Authentication & Admin Users Management
@@ -693,8 +768,8 @@ export const StoreService = {
       INITIAL_POPUP_SETTINGS
     );
   },
-  savePopupSettings: (settings: PromotionalPopupSettings): void => {
-    saveToStorage(STORAGE_KEYS.POPUP_SETTINGS, settings);
+  savePopupSettings: (settings: PromotionalPopupSettings): Promise<boolean> => {
+    return saveToStorage(STORAGE_KEYS.POPUP_SETTINGS, settings);
   },
 
   logoutAdmin: (): void => {

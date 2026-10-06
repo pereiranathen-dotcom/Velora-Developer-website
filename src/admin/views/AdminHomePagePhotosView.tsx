@@ -347,10 +347,14 @@ export const AdminHomePagePhotosView: React.FC = () => {
     setFormData({ ...formData, heroSlides: current });
   };
 
-  const handleSaveAll = (e?: React.FormEvent) => {
+  const handleSaveAll = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    StoreService.saveWebsiteContent(formData);
-    showToast('✓ All home page photos & settings published live to website!');
+    const published = await StoreService.saveWebsiteContent(formData);
+    showToast(
+      published
+        ? '✓ Published. These photos are now live for every visitor.'
+        : 'Could not reach the live site. This browser shows the photos, but other devices will not until you save again.'
+    );
   };
 
   const handleResetDefaults = () => {
