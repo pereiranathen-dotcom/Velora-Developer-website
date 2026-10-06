@@ -127,12 +127,8 @@ async function syncWithSupabase(): Promise<boolean> {
   try {
     const { data, error } = await supabase.from('app_store').select('*');
     if (!error && Array.isArray(data) && data.length > 0) {
-      let hasUpdates = false;
       for (const row of data) {
         if (row?.key && row?.data !== undefined) {
-          if (JSON.stringify(memoryCache[row.key]) !== JSON.stringify(row.data)) {
-            hasUpdates = true;
-          }
           memoryCache[row.key] = row.data;
           idbSave(row.key, row.data);
           try {
@@ -140,9 +136,7 @@ async function syncWithSupabase(): Promise<boolean> {
           } catch {}
         }
       }
-      if (hasUpdates) {
-        window.dispatchEvent(new Event('velora_store_updated'));
-      }
+      window.dispatchEvent(new Event('velora_store_updated'));
       return true;
     }
   } catch (err) {
@@ -263,7 +257,6 @@ function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
     const saved = localStorage.getItem(key);
     if (!saved) {
-      memoryCache[key] = defaultValue;
       return defaultValue;
     }
     const parsed = JSON.parse(saved);
@@ -271,7 +264,6 @@ function loadFromStorage<T>(key: string, defaultValue: T): T {
     return parsed;
   } catch (err) {
     console.warn(`Error reading ${key} from storage:`, err);
-    memoryCache[key] = defaultValue;
     return defaultValue;
   }
 }

@@ -51,6 +51,10 @@ export function useStore() {
       setCurrentUser(StoreService.getCurrentUser());
     };
 
+    // Immediately trigger read and server/Supabase sync on mount
+    handleUpdate();
+    StoreService.syncWithServer().then(() => handleUpdate()).catch(() => {});
+
     window.addEventListener('velora_store_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
