@@ -1,0 +1,153 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A real estate development project such as Amrutvan or Green Opulence",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "slug": { "type": "string" },
+        "name": { "type": "string" },
+        "marathiName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "shortDescription": { "type": "string" },
+        "longDescription": { "type": "string" },
+        "category": { "type": "string" },
+        "location": { "type": "string" },
+        "status": { "type": "string" },
+        "startingPrice": { "type": "string" },
+        "plotSizes": { "type": "string" },
+        "totalPlots": { "type": "number" },
+        "availablePlots": { "type": "number" },
+        "heroImage": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "possessionStatus": { "type": "string" },
+        "featured": { "type": "boolean" },
+        "displayOrder": { "type": "number" }
+      },
+      "required": ["id", "slug", "name", "category", "location", "status"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Customer inquiry submitted through website lead generation form or WhatsApp",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 100 },
+        "project": { "type": "string", "maxLength": 100 },
+        "preferredContact": { "type": "string", "enum": ["Call", "WhatsApp"] },
+        "message": { "type": "string", "maxLength": 1000 },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["New", "Contacted", "Interested", "Site Visit", "Follow Up", "Converted", "Not Interested", "Closed"]
+        },
+        "source": { "type": "string" }
+      },
+      "required": ["name", "phone", "project", "preferredContact", "status"]
+    },
+    "SiteVisit": {
+      "title": "SiteVisit",
+      "description": "Site visit inspection appointment requested by prospective buyer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 100 },
+        "project": { "type": "string", "maxLength": 100 },
+        "preferredDate": { "type": "string" },
+        "preferredTime": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["Requested", "Confirmed", "Completed", "Cancelled"]
+        }
+      },
+      "required": ["customerName", "phone", "project", "preferredDate", "status"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "Photographic visual showcase item for projects and lifestyle spaces",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "project": { "type": "string" },
+        "image": { "type": "string" },
+        "displayOrder": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["title", "category", "project", "image", "active"]
+    },
+    "Testimonial": {
+      "title": "Testimonial",
+      "description": "Customer feedback and review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "location": { "type": "string" },
+        "quote": { "type": "string" },
+        "date": { "type": "string" },
+        "rating": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["customerName", "quote", "active"]
+    },
+    "LocationMilestone": {
+      "title": "LocationMilestone",
+      "description": "Strategic road, highway, town and industrial distance milestone",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "distance": { "type": "string" },
+        "icon": { "type": "string" },
+        "displayOrder": { "type": "number" }
+      },
+      "required": ["name", "distance"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Publicly readable project developments and plot specs"
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "User submitted inquiries and contact forms"
+    },
+    "/siteVisits/{siteVisitId}": {
+      "schema": "SiteVisit",
+      "description": "User submitted site visit appointments"
+    },
+    "/gallery/{galleryId}": {
+      "schema": "GalleryItem",
+      "description": "Curated photo collection and master layout graphics"
+    },
+    "/testimonials/{testimonialId}": {
+      "schema": "Testimonial",
+      "description": "Client feedback and endorsements"
+    },
+    "/locations/{locationId}": {
+      "schema": "LocationMilestone",
+      "description": "Strategic town distances and connectivity markers"
+    },
+    "/websiteContent/{contentId}": {
+      "schema": "object",
+      "description": "Dynamic homepage CMS copy and promotional text"
+    },
+    "/settings/{settingsId}": {
+      "schema": "object",
+      "description": "Official company contact numbers, addresses, social channels"
+    },
+    "/seo/{seoId}": {
+      "schema": "object",
+      "description": "Search engine meta titles, descriptions, and tracking IDs"
+    }
+  }
+}

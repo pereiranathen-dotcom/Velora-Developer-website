@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny all unspecified writes and reads
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'pereiranathen@gmail.com' ||
+        request.auth.token.email == 'veloradevelopers.inquiry@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Projects: Public can read active projects; Admins have full CRUD
+    match /projects/{projectId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(projectId);
+    }
+
+    // Leads: Anyone can submit a lead form; Only admins can read/manage leads
+    match /leads/{leadId} {
+      allow create: if isValidId(leadId) &&
+        request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 100 &&
+        request.resource.data.phone is string && request.resource.data.phone.size() > 0 && request.resource.data.phone.size() <= 30 &&
+        request.resource.data.project is string && request.resource.data.project.size() <= 100;
+      allow read, update, delete: if isAdmin() && isValidId(leadId);
+    }
+
+    // Site Visits: Anyone can request a site visit; Only admins can read/update
+    match /siteVisits/{siteVisitId} {
+      allow create: if isValidId(siteVisitId) &&
+        request.resource.data.customerName is string && request.resource.data.customerName.size() > 0 && request.resource.data.customerName.size() <= 100 &&
+        request.resource.data.phone is string && request.resource.data.phone.size() > 0 && request.resource.data.phone.size() <= 30 &&
+        request.resource.data.project is string &&
+        request.resource.data.preferredDate is string;
+      allow read, update, delete: if isAdmin() && isValidId(siteVisitId);
+    }
+
+    // Gallery: Public can view active gallery items; Admins have full write
+    match /gallery/{galleryId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(galleryId);
+    }
+
+    // Testimonials: Public can view testimonials; Admins have full write
+    match /testimonials/{testimonialId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(testimonialId);
+    }
+
+    // Locations: Public can read connectivity milestones; Admins have full write
+    match /locations/{locationId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() && isValidId(locationId);
+    }
+
+    // Website Content CMS: Public can read CMS text; Admins can edit
+    match /websiteContent/{contentId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(contentId);
+    }
+
+    // Settings: Public can read contact info; Admins can edit
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(settingsId);
+    }
+
+    // SEO: Public can read SEO metadata; Admins can edit
+    match /seo/{seoId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(seoId);
+    }
+
+    // Admins registry: Only admins can read/write
+    match /admins/{adminId} {
+      allow read, write: if isAdmin() && isValidId(adminId);
+    }
+  }
+}
