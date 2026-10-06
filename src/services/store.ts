@@ -26,6 +26,7 @@ import {
   INITIAL_POPUP_SETTINGS,
   INITIAL_CHANNEL_PARTNER_CONTENT,
 } from '../data/initialData';
+import { supabase } from '../lib/supabase';
 
 const STORAGE_KEYS = {
   PROJECTS: 'velora_projects',
@@ -107,8 +108,58 @@ async function pushToServer(key: string, value: any): Promise<void> {
   }
 }
 
-// Full server sync: pull latest data from Cloud SQL / server
-async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | 'local' | 'none' }> {
+// Push to Supabase
+async function pushToSupabase(key: string, value: any): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('app_store')
+      .upsert({ key, data: value, updated_at: new Date().toISOString() });
+    if (error && error.code !== 'PGRST205') {
+      console.debug(`[Supabase] Upsert note for ${key}:`, error.message);
+    }
+  } catch (err) {
+    console.debug(`[Supabase] Push note for ${key}:`, err);
+  }
+}
+
+// Pull latest data directly from Supabase
+async function syncWithSupabase(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.from('app_store').select('*');
+    if (!error && Array.isArray(data) && data.length > 0) {
+      let hasUpdates = false;
+      for (const row of data) {
+        if (row?.key && row?.data !== undefined) {
+          if (JSON.stringify(memoryCache[row.key]) !== JSON.stringify(row.data)) {
+            hasUpdates = true;
+          }
+          memoryCache[row.key] = row.data;
+          idbSave(row.key, row.data);
+          try {
+            localStorage.setItem(row.key, JSON.stringify(row.data));
+          } catch {}
+        }
+      }
+      if (hasUpdates) {
+        window.dispatchEvent(new Event('velora_store_updated'));
+      }
+      return true;
+    }
+  } catch (err) {
+    console.debug('[Supabase] Sync note:', err);
+  }
+  return false;
+}
+
+// Full server sync: pull latest data from Supabase, Cloud SQL, or Express server
+async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | 'supabase' | 'local' | 'none' }> {
+  // 1. Try Supabase first
+  const supabaseSynced = await syncWithSupabase();
+  if (supabaseSynced) {
+    return { synced: true, source: 'supabase' };
+  }
+
+  // 2. Fallback to Express / Cloud SQL API
   if (typeof fetch === 'undefined') return { synced: false, source: 'none' };
   try {
     const res = await fetch('/api/store');
@@ -142,6 +193,32 @@ async function syncWithServer(): Promise<{ synced: boolean; source: 'server' | '
     console.debug('[Store] Server sync note:', err);
   }
   return { synced: false, source: 'none' };
+}
+
+// Setup Supabase Realtime Listener across all browsers & tabs
+if (typeof window !== 'undefined') {
+  try {
+    supabase
+      .channel('public_app_store_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_store' },
+        (payload: any) => {
+          const newRow = payload?.new;
+          if (newRow?.key && newRow?.data !== undefined) {
+            memoryCache[newRow.key] = newRow.data;
+            idbSave(newRow.key, newRow.data);
+            try {
+              localStorage.setItem(newRow.key, JSON.stringify(newRow.data));
+            } catch {}
+            window.dispatchEvent(new Event('velora_store_updated'));
+          }
+        }
+      )
+      .subscribe();
+  } catch (err) {
+    console.debug('[Supabase] Realtime listener note:', err);
+  }
 }
 
 // Background hydration: Load persistent data from IndexedDB on startup, then sync with server
@@ -219,8 +296,9 @@ function saveToStorage<T>(key: string, value: T): void {
     }
   }
 
-  // 4. Send to backend Express server so all browsers receive it
+  // 4. Send to backend Express server and Supabase so all browsers receive it
   pushToServer(key, value).catch(() => {});
+  pushToSupabase(key, value).catch(() => {});
 
   // 5. Trigger window event so all subscribed components update reactively
   window.dispatchEvent(new Event('velora_store_updated'));
@@ -228,7 +306,7 @@ function saveToStorage<T>(key: string, value: T): void {
 
 export const StoreService = {
   // Cloud / Server Sync
-  syncWithServer: (): Promise<{ synced: boolean; source: 'server' | 'local' | 'none' }> => {
+  syncWithServer: (): Promise<{ synced: boolean; source: 'server' | 'supabase' | 'local' | 'none' }> => {
     return syncWithServer();
   },
   pushAllToCloud: async (): Promise<boolean> => {
@@ -237,6 +315,7 @@ export const StoreService = {
       const localVal = memoryCache[key] ?? loadFromStorage(key, null);
       if (localVal !== null && localVal !== undefined) {
         snapshot[key] = localVal;
+        pushToSupabase(key, localVal).catch(() => {});
       }
     }
     try {

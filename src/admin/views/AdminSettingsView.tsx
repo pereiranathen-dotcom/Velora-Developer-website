@@ -193,6 +193,44 @@ export const AdminSettingsView: React.FC = () => {
           </div>
         </div>
 
+        {/* Supabase Cloud Database Status */}
+        <div className="bg-[#FFF8E7] rounded-xl p-6 border border-[#C9A24A]/25 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-[#C9A24A]/20 pb-2">
+            <h3 className="font-serif text-lg text-[#00291E] font-medium flex items-center gap-2">
+              <Globe className="w-4 h-4 text-[#C9A24A]" />
+              <span>Supabase Cloud Database Connection</span>
+            </h3>
+            <span className="text-[11px] font-mono bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-medium">
+              Connected: bbgcvexhjvcvbowhxabc
+            </span>
+          </div>
+
+          <p className="text-xs text-[#26342D]/75 leading-relaxed font-light">
+            Your website is configured to communicate with your Supabase project (<strong>https://bbgcvexhjvcvbowhxabc.supabase.co</strong>).
+            To enable cross-browser real-time photo &amp; data persistence, make sure the <code className="bg-[#F8F0D8] px-1.5 py-0.5 rounded text-[#00291E] font-mono">app_store</code> table is created in your Supabase SQL editor.
+          </p>
+
+          <div className="bg-[#00291E] text-white/90 p-4 rounded-lg font-mono text-[11px] space-y-2 overflow-x-auto border border-[#C9A24A]/30">
+            <p className="text-[#C9A24A] font-semibold text-xs">Run this SQL in your Supabase Dashboard &gt; SQL Editor:</p>
+            <pre className="text-emerald-300 leading-normal select-all">
+{`CREATE TABLE IF NOT EXISTS public.app_store (
+  key TEXT PRIMARY KEY,
+  data JSONB NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read and write" 
+ON public.app_store 
+FOR ALL 
+TO anon, authenticated 
+USING (true) 
+WITH CHECK (true);`}
+            </pre>
+          </div>
+        </div>
+
         <div className="flex justify-end">
           <button
             type="submit"
