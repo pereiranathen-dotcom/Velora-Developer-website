@@ -304,13 +304,19 @@ export const AdminProjectsView: React.FC = () => {
     setEditingProject(JSON.parse(JSON.stringify(project)));
   };
 
-  const handleSave = (e?: React.FormEvent) => {
+  const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!editingProject || !editingProject.name) return;
-    StoreService.saveProject(editingProject);
-    showToast(`✓ Changes saved successfully for "${editingProject.name}"! All updates are live.`);
-    setEditingProject(null);
-    setIsNew(false);
+    const published = await StoreService.saveProject(editingProject);
+    showToast(
+      published
+        ? `✓ "${editingProject.name}" is live for every visitor.`
+        : `Could not publish "${editingProject.name}". Other devices still show the previous version.`
+    );
+    if (published) {
+      setEditingProject(null);
+      setIsNew(false);
+    }
   };
 
   const handleQuickSave = () => {

@@ -21,6 +21,7 @@ export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateVi
     showLogoTagline: content.showLogoTagline !== false,
   });
   const [saved, setSaved] = useState(false);
+  const [publishError, setPublishError] = useState('');
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -59,9 +60,14 @@ export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateVi
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    StoreService.saveWebsiteContent(formData);
+    setPublishError('');
+    const published = await StoreService.saveWebsiteContent(formData);
+    if (!published) {
+      setPublishError('Saved on this browser only. The live site did not update, so other visitors still see the previous content.');
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -79,7 +85,12 @@ export const AdminContentView: React.FC<AdminContentViewProps> = ({ onNavigateVi
         {saved && (
           <div className="flex items-center gap-2 bg-emerald-100 text-emerald-800 px-3.5 py-1.5 rounded-lg text-xs font-medium border border-emerald-300">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Changes successfully published to website!</span>
+            <span>Published. Every visitor will see this content.</span>
+          </div>
+        )}
+        {publishError && (
+          <div className="flex items-center gap-2 bg-red-100 text-red-800 px-3.5 py-1.5 rounded-lg text-xs font-medium border border-red-300">
+            <span>{publishError}</span>
           </div>
         )}
       </div>

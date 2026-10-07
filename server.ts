@@ -53,13 +53,47 @@ function persistToDisk() {
   }
 }
 
-// Migrate initial disk state into Cloud SQL if DB is empty
+// Migrate initial state into Cloud SQL and memory from Supabase or disk
 async function initDbState() {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://bbgcvexhjvcvbowhxabc.supabase.co';
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_e5YSuryYTC47WsEeXfUAfg_iKO9uMRx';
+
+  // If local memory is empty, attempt to hydrate from Supabase
+  if (Object.keys(appState).length === 0 && typeof fetch !== 'undefined') {
+    try {
+      const restEndpoint = `${supabaseUrl.replace(/\/rest\/v1\/?$/, '')}/rest/v1/app_store?select=*`;
+      const res = await fetch(restEndpoint, {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          for (const row of rows) {
+            if (row?.key && row?.data !== undefined) {
+              appState[row.key] = row.data;
+            }
+          }
+          console.log(`Loaded ${Object.keys(appState).length} keys from Supabase into server memory.`);
+          persistToDisk();
+        }
+      }
+    } catch (err) {
+      console.warn('Hydration from Supabase note:', err);
+    }
+  }
+
   if (process.env.SQL_HOST) {
     try {
       const existing = await getAllStoreValues();
       const keys = Object.keys(existing);
-      if (keys.length === 0 && fs.existsSync(DATA_FILE)) {
+      if (keys.length === 0 && Object.keys(appState).length > 0) {
+        console.log('Cloud SQL app_store is empty. Migrating appState to Cloud SQL...');
+        await setBulkStoreValues(appState);
+        console.log(`Migrated ${Object.keys(appState).length} keys to Cloud SQL successfully.`);
+      } else if (keys.length === 0 && fs.existsSync(DATA_FILE)) {
         console.log('Cloud SQL app_store is empty. Migrating data/app_state.json to Cloud SQL...');
         const raw = fs.readFileSync(DATA_FILE, 'utf-8');
         const diskData = JSON.parse(raw);

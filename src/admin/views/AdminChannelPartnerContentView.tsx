@@ -35,9 +35,13 @@ export const AdminChannelPartnerContentView: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  const handleSave = (e?: React.FormEvent) => {
+  const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    StoreService.saveChannelPartnerContent(formData);
+    const published = await StoreService.saveChannelPartnerContent(formData);
+    if (!published) {
+      window.alert('Saved on this browser only. Other visitors will not see this until the live site accepts the update.');
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
