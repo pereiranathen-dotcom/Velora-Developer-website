@@ -11,6 +11,7 @@ import {
   AdminUser,
   PromotionalPopupSettings,
   ChannelPartnerContent,
+  CRMIntegrationSettings,
 } from '../types';
 import {
   INITIAL_PROJECTS,
@@ -25,8 +26,10 @@ import {
   INITIAL_ADMIN_USERS,
   INITIAL_POPUP_SETTINGS,
   INITIAL_CHANNEL_PARTNER_CONTENT,
+  INITIAL_CRM_SETTINGS,
 } from '../data/initialData';
 import { supabase } from '../lib/supabase';
+import { CRMService } from './crmService';
 
 const STORAGE_KEYS = {
   PROJECTS: 'velora_projects',
@@ -40,6 +43,7 @@ const STORAGE_KEYS = {
   CONTACT_SETTINGS: 'velora_contact_settings',
   SEO_SETTINGS: 'velora_seo_settings',
   POPUP_SETTINGS: 'velora_popup_settings',
+  CRM_SETTINGS: 'velora_crm_settings',
   AUTH: 'velora_admin_auth',
   ADMIN_USERS: 'velora_admin_users',
   CURRENT_USER: 'velora_admin_current_user',
@@ -506,10 +510,30 @@ export const StoreService = {
       date: `${day} ${month} ${year}`,
       time,
       status: leadData.status || 'New',
+      crmStatus: 'pending',
       ...leadData,
     };
     list.unshift(newLead);
     saveToStorage(STORAGE_KEYS.LEADS, list);
+
+    // Asynchronously dispatch to CRM in background without blocking UI
+    setTimeout(async () => {
+      try {
+        const isPartner = Boolean(newLead.partnerType || newLead.reraNumber);
+        const res = await CRMService.dispatchLead(newLead, isPartner ? 'partner' : 'lead');
+        const currentLeads = StoreService.getLeads();
+        const target = currentLeads.find((l) => l.id === newLead.id);
+        if (target) {
+          target.crmStatus = res.success ? 'synced' : 'failed';
+          target.crmSyncedAt = new Date().toISOString();
+          if (!res.success) target.crmError = res.message;
+          saveToStorage(STORAGE_KEYS.LEADS, currentLeads);
+        }
+      } catch (err) {
+        console.warn('CRM auto-dispatch note:', err);
+      }
+    }, 50);
+
     return newLead;
   },
   updateLeadStatus: (id: string, status: Lead['status'], notes?: string): Promise<boolean> => {
@@ -547,10 +571,29 @@ export const StoreService = {
       id: `SV-${Math.floor(200 + Math.random() * 800)}`,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
       status: data.status || 'Requested',
+      crmStatus: 'pending',
       ...data,
     };
     list.unshift(newReq);
     saveToStorage(STORAGE_KEYS.SITE_VISITS, list);
+
+    // Asynchronously dispatch to CRM in background
+    setTimeout(async () => {
+      try {
+        const res = await CRMService.dispatchSiteVisit(newReq);
+        const currentVisits = StoreService.getSiteVisits();
+        const target = currentVisits.find((v) => v.id === newReq.id);
+        if (target) {
+          target.crmStatus = res.success ? 'synced' : 'failed';
+          target.crmSyncedAt = new Date().toISOString();
+          if (!res.success) target.crmError = res.message;
+          saveToStorage(STORAGE_KEYS.SITE_VISITS, currentVisits);
+        }
+      } catch (err) {
+        console.warn('CRM site visit auto-dispatch note:', err);
+      }
+    }, 50);
+
     return newReq;
   },
   updateSiteVisitStatus: (id: string, status: SiteVisitRequest['status'], notes?: string): Promise<boolean> => {
@@ -601,6 +644,29 @@ export const StoreService = {
   },
   saveSEOSettings: (seo: SEOSettings): Promise<boolean> => {
     return saveToStorage(STORAGE_KEYS.SEO_SETTINGS, seo);
+  },
+
+  // CRM Integration Settings
+  getCRMSettings: (): CRMIntegrationSettings => {
+    const settings = loadFromStorage<CRMIntegrationSettings>(STORAGE_KEYS.CRM_SETTINGS, INITIAL_CRM_SETTINGS);
+    if (typeof window !== 'undefined') {
+      (window as any).__velora_crm_settings = settings;
+    }
+    return settings;
+  },
+  saveCRMSettings: async (crm: CRMIntegrationSettings): Promise<boolean> => {
+    if (typeof window !== 'undefined') {
+      (window as any).__velora_crm_settings = crm;
+    }
+    // Also push directly to server CRM settings endpoint
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/crm/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(crm),
+      }).catch(() => {});
+    }
+    return saveToStorage(STORAGE_KEYS.CRM_SETTINGS, crm);
   },
 
   // Authentication & Admin Users Management

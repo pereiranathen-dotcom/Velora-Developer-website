@@ -174,6 +174,9 @@ export interface Lead {
   city?: string;
   partnerType?: string;
   reraNumber?: string;
+  crmStatus?: 'pending' | 'synced' | 'failed';
+  crmSyncedAt?: string;
+  crmError?: string;
 }
 
 export interface SiteVisitRequest {
@@ -191,6 +194,23 @@ export interface SiteVisitRequest {
   pickupLocation?: string;
   numberOfVisitors?: number;
   leadId?: string;
+  crmStatus?: 'pending' | 'synced' | 'failed';
+  crmSyncedAt?: string;
+  crmError?: string;
+}
+
+export interface CRMIntegrationSettings {
+  enabled: boolean;
+  webhookUrl: string;
+  securityToken: string;
+  authHeaderName: string; // e.g. 'Authorization' or 'x-api-key' or 'token'
+  authHeaderType: 'bearer' | 'raw'; // 'bearer' adds Bearer prefix, 'raw' passes as-is
+  sendOnWebsiteLead: boolean;
+  sendOnSiteVisit: boolean;
+  sendOnChannelPartner: boolean;
+  lastTestedAt?: string;
+  lastTestStatus?: 'success' | 'failed';
+  lastTestMessage?: string;
 }
 
 export interface WhyChooseItem {

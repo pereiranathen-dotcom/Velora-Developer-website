@@ -27,9 +27,11 @@ import {
 import { useStore } from '../../hooks/useStore';
 import { StoreService } from '../../services/store';
 import { Lead } from '../../types';
+import { CRMService } from '../../services/crmService';
 
 export const AdminPartnerLeadsView: React.FC = () => {
-  const { leads, adminUsers, settings } = useStore();
+  const { leads, adminUsers, settings, crmSettings } = useStore();
+  const [isSyncingCRM, setIsSyncingCRM] = useState(false);
 
   // Filter & Search states
   const [search, setSearch] = useState('');
@@ -279,6 +281,41 @@ export const AdminPartnerLeadsView: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const handleSyncPartnerToCRM = async (partner: Lead, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!crmSettings.enabled || !crmSettings.webhookUrl?.trim()) {
+      showToast('⚠️ Please configure and enable CRM Webhook in Settings first.');
+      return;
+    }
+    showToast(`Dispatching partner "${partner.name}" to CRM...`);
+    const res = await CRMService.dispatchLead(partner, 'partner');
+    if (res.success) {
+      showToast(`✓ Partner "${partner.name}" (${partner.id}) forwarded to CRM!`);
+    } else {
+      showToast(`CRM Notice: ${res.message}`);
+    }
+  };
+
+  const handleSyncAllPartnersToCRM = async () => {
+    if (!crmSettings.enabled || !crmSettings.webhookUrl?.trim()) {
+      showToast('⚠️ Please configure and enable CRM Webhook in Settings first.');
+      return;
+    }
+    const unsynced = partnerLeads.filter((l) => l.crmStatus !== 'synced');
+    if (unsynced.length === 0) {
+      showToast('✓ All channel partners are already synced to your CRM!');
+      return;
+    }
+    setIsSyncingCRM(true);
+    let successCount = 0;
+    for (const partner of unsynced) {
+      const res = await CRMService.dispatchLead(partner, 'partner');
+      if (res.success) successCount++;
+    }
+    setIsSyncingCRM(false);
+    showToast(`✓ Forwarded ${successCount} of ${unsynced.length} partners to CRM!`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -304,6 +341,18 @@ export const AdminPartnerLeadsView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {crmSettings.enabled && (
+            <button
+              onClick={handleSyncAllPartnersToCRM}
+              disabled={isSyncingCRM}
+              className="bg-[#00291E] hover:bg-[#003D2B] border border-[#C9A24A]/40 text-[#C9A24A] text-xs font-semibold px-3.5 py-2 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Push unsynced channel partners to CRM"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{isSyncingCRM ? 'Syncing...' : 'Sync to CRM'}</span>
+            </button>
+          )}
+
           <button
             onClick={handleExportCSV}
             className="bg-[#F8F0D8] hover:bg-[#C9A24A]/20 border border-[#C9A24A]/30 text-[#00291E] text-xs font-medium px-3.5 py-2 rounded flex items-center gap-1.5 transition-colors"
@@ -581,6 +630,25 @@ export const AdminPartnerLeadsView: React.FC = () => {
 
                     <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
+                        {crmSettings.enabled && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleSyncPartnerToCRM(partner, e)}
+                            className={`p-1.5 rounded transition-colors ${
+                              partner.crmStatus === 'synced'
+                                ? 'text-emerald-700 hover:text-emerald-900 bg-emerald-100/80'
+                                : 'text-[#C9A24A] hover:text-[#00291E] bg-[#00291E]/10'
+                            }`}
+                            title={
+                              partner.crmStatus === 'synced'
+                                ? 'Synced to CRM (Click to re-send)'
+                                : 'Push to CRM'
+                            }
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
                         <a
                           href={`tel:${partner.phone}`}
                           className="p-1.5 text-[#00291E] hover:text-[#C9A24A] bg-[#F8F0D8] rounded transition-colors"
@@ -734,6 +802,17 @@ export const AdminPartnerLeadsView: React.FC = () => {
                 <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Chat on WhatsApp</span>
               </button>
+
+              {crmSettings.enabled && (
+                <button
+                  type="button"
+                  onClick={() => handleSyncPartnerToCRM(activePartner)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#00291E] border border-[#C9A24A]/40 text-[#C9A24A] hover:text-white text-xs font-semibold transition-colors"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Sync to CRM</span>
+                </button>
+              )}
             </div>
 
             {/* Partner Details Grid */}
@@ -766,6 +845,26 @@ export const AdminPartnerLeadsView: React.FC = () => {
                   {activePartner.date} ({activePartner.time})
                 </span>
               </div>
+              {crmSettings.enabled && (
+                <div className="col-span-2 pt-2 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-white/50 text-[10px] uppercase">CRM Sync Status</span>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      activePartner.crmStatus === 'synced'
+                        ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-500/40'
+                        : activePartner.crmStatus === 'failed'
+                        ? 'bg-red-900/60 text-red-300 border border-red-500/40'
+                        : 'bg-amber-900/60 text-amber-300 border border-amber-500/40'
+                    }`}
+                  >
+                    {activePartner.crmStatus === 'synced'
+                      ? '✓ Synced to CRM'
+                      : activePartner.crmStatus === 'failed'
+                      ? `⚠️ Sync Failed${activePartner.crmError ? `: ${activePartner.crmError}` : ''}`
+                      : '⏳ Pending Sync'}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Partner Inquiry Note / Message */}

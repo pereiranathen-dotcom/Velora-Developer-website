@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Project } from '../types';
+import { supabase } from '../lib/supabase';
 
 const DB_NAME = 'velora_files_db';
 const STORE_NAME = 'project_brochures';
@@ -12,8 +13,52 @@ interface StoredBrochureRecord {
   fileSize: number;
   fileSizeFormatted: string;
   uploadDate: string;
-  blob: Blob;
+  blob?: Blob;
   dataUrl?: string;
+}
+
+/**
+ * Safely convert Data URI to Blob for universal browser download support
+ */
+function dataUriToBlob(dataUri: string): Blob {
+  try {
+    const parts = dataUri.split(',');
+    const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'application/pdf';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch (err) {
+    console.warn('dataUriToBlob fallback note:', err);
+    return new Blob([dataUri], { type: 'application/pdf' });
+  }
+}
+
+/**
+ * Universal browser file download trigger supporting both Blobs and Data URLs
+ */
+function triggerDownload(urlOrDataUri: string, fileName: string): void {
+  let objectUrl: string | null = null;
+  if (urlOrDataUri.startsWith('data:')) {
+    const blob = dataUriToBlob(urlOrDataUri);
+    objectUrl = URL.createObjectURL(blob);
+  }
+
+  const link = document.createElement('a');
+  link.href = objectUrl || urlOrDataUri;
+  link.download = fileName;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  if (objectUrl) {
+    setTimeout(() => URL.revokeObjectURL(objectUrl!), 15000);
+  }
 }
 
 /**
@@ -55,7 +100,7 @@ export function formatFileSize(bytes: number): string {
 
 export const BrochureService = {
   /**
-   * Save a brochure file uploaded from the computer to IndexedDB
+   * Save a brochure file uploaded from the computer to IndexedDB and Supabase Cloud
    */
   saveBrochureFile: async (
     projectId: string,
@@ -64,9 +109,8 @@ export const BrochureService = {
     fileName: string;
     fileSizeFormatted: string;
     uploadDate: string;
-    dataUrl?: string;
+    dataUrl: string;
   }> => {
-    const db = await openFilesDB();
     const uploadDate = new Date().toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -77,20 +121,13 @@ export const BrochureService = {
 
     const fileSizeFormatted = formatFileSize(file.size);
 
-    // If small enough (< 1.5MB), also generate a base64 dataUrl as secondary fallback
-    let dataUrl: string | undefined = undefined;
-    if (file.size <= 1.5 * 1024 * 1024) {
-      try {
-        dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-      } catch {
-        // Fallback silently if base64 conversion fails; binary blob in IndexedDB will be used
-      }
-    }
+    // Read full file as Data URI
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read PDF file from device'));
+      reader.readAsDataURL(file);
+    });
 
     const record: StoredBrochureRecord = {
       projectId,
@@ -103,13 +140,44 @@ export const BrochureService = {
       dataUrl,
     };
 
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.put(record);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+    // 1. Save to local IndexedDB for instant local downloads
+    try {
+      const db = await openFilesDB();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.warn('Could not cache brochure in local IndexedDB:', err);
+    }
+
+    // 2. Persist to Supabase app_store so EVERY visitor and device can download the PDF
+    try {
+      const { error } = await supabase.from('app_store').upsert(
+        {
+          key: `velora_brochure_${projectId}`,
+          data: {
+            projectId,
+            fileName: file.name,
+            fileType: file.type || 'application/pdf',
+            fileSize: file.size,
+            fileSizeFormatted,
+            uploadDate,
+            dataUrl,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
+      if (error) {
+        console.warn(`[Supabase] Could not sync brochure for ${projectId}:`, error.message);
+      }
+    } catch (err) {
+      console.warn('[Supabase] Brochure upload note:', err);
+    }
 
     return {
       fileName: file.name,
@@ -120,25 +188,62 @@ export const BrochureService = {
   },
 
   /**
-   * Retrieve brochure blob for a project from IndexedDB
+   * Retrieve brochure blob/data for a project from local IndexedDB or Supabase Cloud
    */
   getBrochureRecord: async (projectId: string): Promise<StoredBrochureRecord | null> => {
+    // 1. Check local IndexedDB first
     try {
       const db = await openFilesDB();
-      return await new Promise((resolve) => {
+      const localResult = await new Promise<StoredBrochureRecord | null>((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
         const req = store.get(projectId);
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => resolve(null);
       });
-    } catch {
-      return null;
+      if (localResult && (localResult.blob || localResult.dataUrl)) {
+        return localResult;
+      }
+    } catch {}
+
+    // 2. Check Supabase cloud database
+    try {
+      const { data: rows, error } = await supabase
+        .from('app_store')
+        .select('data')
+        .eq('key', `velora_brochure_${projectId}`)
+        .limit(1);
+
+      if (!error && Array.isArray(rows) && rows.length > 0 && rows[0]?.data?.dataUrl) {
+        const remote = rows[0].data;
+        const record: StoredBrochureRecord = {
+          projectId,
+          fileName: remote.fileName,
+          fileType: remote.fileType || 'application/pdf',
+          fileSize: remote.fileSize || 0,
+          fileSizeFormatted: remote.fileSizeFormatted || '',
+          uploadDate: remote.uploadDate || '',
+          dataUrl: remote.dataUrl,
+        };
+
+        // Cache in local IndexedDB for future instant downloads
+        try {
+          const db = await openFilesDB();
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).put(record);
+        } catch {}
+
+        return record;
+      }
+    } catch (err) {
+      console.warn('Failed to retrieve brochure from Supabase:', err);
     }
+
+    return null;
   },
 
   /**
-   * Delete a brochure from IndexedDB
+   * Delete a brochure from local IndexedDB and Supabase Cloud
    */
   deleteBrochureFile: async (projectId: string): Promise<void> => {
     try {
@@ -150,9 +255,14 @@ export const BrochureService = {
         req.onsuccess = () => resolve();
         req.onerror = () => resolve();
       });
-    } catch {
-      // Ignored
-    }
+    } catch {}
+
+    try {
+      await supabase
+        .from('app_store')
+        .delete()
+        .eq('key', `velora_brochure_${projectId}`);
+    } catch {}
   },
 
   /**
@@ -468,73 +578,68 @@ export const BrochureService = {
 
   /**
    * Universal customer download function:
-   * Triggers download of the uploaded brochure from the computer,
-   * or fallback URL, or generates official PDF if none uploaded yet.
+   * Downloads the uploaded brochure PDF from Supabase Cloud, local IndexedDB,
+   * external URL, or generates the official PDF dynamically if none uploaded.
    */
   downloadProjectBrochure: async (
     project: Project
   ): Promise<{ success: boolean; message: string; fileName: string }> => {
-    // 1. Check IndexedDB for the file uploaded from the computer
-    const record = await BrochureService.getBrochureRecord(project.id);
-    if (record && record.blob) {
-      const objectUrl = URL.createObjectURL(record.blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = record.fileName || `Velora_${project.name}_Brochure.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+    const defaultFileName =
+      project.brochureFileName ||
+      project.masterPlanPdfFileName ||
+      `Velora_${(project.name || 'Project').replace(/\s+/g, '_')}_Brochure.pdf`;
 
+    // 1. Direct base64 or blob URI on the project object
+    const directUrl = project.brochurePdfUrl || project.masterPlanPdfUrl;
+    if (directUrl && (directUrl.startsWith('data:') || directUrl.startsWith('blob:'))) {
+      triggerDownload(directUrl, defaultFileName);
       return {
         success: true,
-        message: `Downloading ${record.fileName} (${record.fileSizeFormatted})...`,
-        fileName: record.fileName,
+        message: `Downloading ${defaultFileName}...`,
+        fileName: defaultFileName,
       };
     }
 
-    // 2. Check dataUrl or project.brochurePdfUrl or project.masterPlanPdfUrl
-    const url = project.brochurePdfUrl || project.masterPlanPdfUrl;
-    if (url) {
-      if (url.startsWith('data:') || url.startsWith('blob:')) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download =
-          project.brochureFileName ||
-          project.masterPlanPdfFileName ||
-          `Velora_${project.name}_Brochure.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        return {
-          success: true,
-          message: `Downloading ${a.download}...`,
-          fileName: a.download,
-        };
-      } else {
-        // External link or URL
-        window.open(url, '_blank', 'noopener,noreferrer');
-        return {
-          success: true,
-          message: 'Opening brochure in new tab...',
-          fileName: 'Brochure PDF',
-        };
+    // 2. Check local IndexedDB or Supabase via getBrochureRecord
+    const record =
+      (await BrochureService.getBrochureRecord(project.id)) ||
+      (project.slug ? await BrochureService.getBrochureRecord(project.slug) : null);
+
+    if (record) {
+      const targetFileName = record.fileName || defaultFileName;
+      if (record.blob) {
+        const objectUrl = URL.createObjectURL(record.blob);
+        triggerDownload(objectUrl, targetFileName);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
+      } else if (record.dataUrl) {
+        triggerDownload(record.dataUrl, targetFileName);
       }
+      return {
+        success: true,
+        message: `Downloading ${targetFileName}...`,
+        fileName: targetFileName,
+      };
     }
 
-    // 3. If no brochure uploaded yet, generate official PDF dynamically on the fly
-    const gen = await BrochureService.generateOfficialBrochurePdf(project);
-    const genRecord = await BrochureService.getBrochureRecord(project.id);
-    if (genRecord && genRecord.blob) {
-      const objectUrl = URL.createObjectURL(genRecord.blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = gen.fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+    // 3. External Link or Cloud URL (Google Drive, OneDrive, S3, direct PDF URL)
+    if (directUrl && (directUrl.startsWith('http://') || directUrl.startsWith('https://'))) {
+      let downloadUrl = directUrl;
+      const gDriveMatch = directUrl.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+      if (gDriveMatch && gDriveMatch[1]) {
+        downloadUrl = `https://drive.google.com/uc?export=download&id=${gDriveMatch[1]}`;
+      }
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      return {
+        success: true,
+        message: 'Opening official brochure in new tab...',
+        fileName: defaultFileName,
+      };
+    }
 
+    // 4. Fallback: Generate the branded PDF brochure dynamically on the fly
+    const gen = await BrochureService.generateOfficialBrochurePdf(project);
+    if (gen && gen.dataUrl) {
+      triggerDownload(gen.dataUrl, gen.fileName);
       return {
         success: true,
         message: `Downloaded official ${project.name} brochure (${gen.fileSizeFormatted})!`,

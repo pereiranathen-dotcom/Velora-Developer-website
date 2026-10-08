@@ -359,22 +359,24 @@ export const AdminProjectsView: React.FC = () => {
     setUploadingBrochure(true);
     try {
       const res = await BrochureService.saveBrochureFile(editingProject.id, file);
-      setEditingProject({
+      const updated: Project = {
         ...editingProject,
         brochureFileName: res.fileName,
         brochureFileSize: res.fileSizeFormatted,
         brochureUploadDate: res.uploadDate,
-        brochurePdfUrl: res.dataUrl || editingProject.brochurePdfUrl || res.fileName,
+        brochurePdfUrl: res.dataUrl,
         masterPlanPdfFileName: res.fileName,
         masterPlanPdfFileSize: res.fileSizeFormatted,
         masterPlanPdfUploadDate: res.uploadDate,
-        masterPlanPdfUrl: res.dataUrl || editingProject.masterPlanPdfUrl || res.fileName,
+        masterPlanPdfUrl: res.dataUrl,
         masterPlanDownloadText:
           editingProject.masterPlanDownloadText || `Download ${editingProject.name} Brochure`,
         brochureDownloadText:
           editingProject.brochureDownloadText || `Download ${editingProject.name} Brochure`,
-      });
-      showToast(`✓ Official brochure "${res.fileName}" (${res.fileSizeFormatted}) uploaded successfully from your computer!`);
+      };
+      setEditingProject(updated);
+      await StoreService.saveProject(updated);
+      showToast(`✓ Official brochure "${res.fileName}" (${res.fileSizeFormatted}) uploaded & published live!`);
     } catch (err: any) {
       console.error('Failed to upload brochure:', err);
       showToast('Failed to save brochure file. Please try again.');
@@ -389,7 +391,7 @@ export const AdminProjectsView: React.FC = () => {
     setGeneratingBrochure(true);
     try {
       const res = await BrochureService.generateOfficialBrochurePdf(editingProject);
-      setEditingProject({
+      const updated: Project = {
         ...editingProject,
         brochureFileName: res.fileName,
         brochureFileSize: res.fileSizeFormatted,
@@ -403,7 +405,9 @@ export const AdminProjectsView: React.FC = () => {
           editingProject.masterPlanDownloadText || `Download ${editingProject.name} Brochure`,
         brochureDownloadText:
           editingProject.brochureDownloadText || `Download ${editingProject.name} Brochure`,
-      });
+      };
+      setEditingProject(updated);
+      await StoreService.saveProject(updated);
       showToast(`✓ Generated official Velora PDF brochure for "${editingProject.name}" (${res.fileSizeFormatted})!`);
     } catch (err: any) {
       console.error('Failed to generate brochure:', err);
@@ -432,7 +436,7 @@ export const AdminProjectsView: React.FC = () => {
       )
     ) {
       await BrochureService.deleteBrochureFile(editingProject.id);
-      setEditingProject({
+      const updated: Project = {
         ...editingProject,
         brochureFileName: undefined,
         brochureFileSize: undefined,
@@ -442,8 +446,10 @@ export const AdminProjectsView: React.FC = () => {
         masterPlanPdfFileSize: undefined,
         masterPlanPdfUploadDate: undefined,
         masterPlanPdfUrl: undefined,
-      });
-      showToast('Brochure file removed from project.');
+      };
+      setEditingProject(updated);
+      await StoreService.saveProject(updated);
+      showToast('Brochure removed.');
     }
   };
 

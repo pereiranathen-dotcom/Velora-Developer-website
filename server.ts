@@ -188,6 +188,116 @@ app.post('/api/store', async (req, res) => {
   }
 });
 
+// CRM Settings Endpoint - Retrieve active settings
+app.get('/api/crm/settings', (_req, res) => {
+  const current = (appState['velora_crm_settings'] as any) || {};
+  const token = current.securityToken || process.env.CRM_SECURITY_TOKEN || process.env.VITE_CRM_SECURITY_TOKEN || '';
+  res.json({
+    success: true,
+    data: {
+      enabled: Boolean(current.enabled ?? (process.env.CRM_WEBHOOK_URL || process.env.VITE_CRM_WEBHOOK_URL)),
+      webhookUrl: current.webhookUrl || process.env.CRM_WEBHOOK_URL || process.env.VITE_CRM_WEBHOOK_URL || '',
+      hasToken: Boolean(token),
+      tokenMasked: token ? (token.length > 8 ? `${token.slice(0, 4)}...${token.slice(-4)}` : '••••••••') : '',
+      authHeaderName: current.authHeaderName || process.env.CRM_AUTH_HEADER_NAME || 'Authorization',
+      authHeaderType: current.authHeaderType || process.env.CRM_AUTH_HEADER_TYPE || 'bearer',
+      sendOnWebsiteLead: current.sendOnWebsiteLead ?? true,
+      sendOnSiteVisit: current.sendOnSiteVisit ?? true,
+      sendOnChannelPartner: current.sendOnChannelPartner ?? true,
+    },
+  });
+});
+
+// CRM Settings Endpoint - Save settings directly to server state
+app.post('/api/crm/settings', async (req, res) => {
+  const updates = req.body;
+  if (!updates || typeof updates !== 'object') {
+    return res.status(400).json({ success: false, error: 'Invalid settings body' });
+  }
+  const existing = (appState['velora_crm_settings'] as any) || {};
+  const merged = { ...existing, ...updates };
+  appState['velora_crm_settings'] = merged;
+  persistToDisk();
+  try {
+    if (process.env.SQL_HOST) {
+      await setStoreValue('velora_crm_settings', merged);
+    }
+  } catch (err: any) {
+    console.warn('Could not save CRM settings to Cloud SQL:', err?.message || err);
+  }
+  res.json({ success: true, data: merged });
+});
+
+// CRM Webhook Dispatch Server Proxy (bypasses browser CORS restrictions)
+app.post('/api/crm/dispatch', async (req, res) => {
+  let { webhookUrl, securityToken, authHeaderName, authHeaderType, payload } = req.body;
+
+  // Fallback to saved server settings or environment variables if not passed directly
+  if (!webhookUrl || typeof webhookUrl !== 'string' || !webhookUrl.trim()) {
+    const serverSettings = appState['velora_crm_settings'] as any;
+    if (serverSettings?.webhookUrl?.trim()) {
+      webhookUrl = serverSettings.webhookUrl.trim();
+      securityToken = securityToken || serverSettings.securityToken;
+      authHeaderName = authHeaderName || serverSettings.authHeaderName;
+      authHeaderType = authHeaderType || serverSettings.authHeaderType;
+    } else if (process.env.CRM_WEBHOOK_URL || process.env.VITE_CRM_WEBHOOK_URL) {
+      webhookUrl = (process.env.CRM_WEBHOOK_URL || process.env.VITE_CRM_WEBHOOK_URL)?.trim();
+      securityToken = securityToken || process.env.CRM_SECURITY_TOKEN || process.env.VITE_CRM_SECURITY_TOKEN;
+      authHeaderName = authHeaderName || process.env.CRM_AUTH_HEADER_NAME;
+      authHeaderType = authHeaderType || process.env.CRM_AUTH_HEADER_TYPE;
+    }
+  }
+
+  if (!webhookUrl || typeof webhookUrl !== 'string' || !webhookUrl.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'webhookUrl is required. Please configure your CRM Webhook URL in Admin Settings or pass it in request.',
+    });
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'VeloraDevelopers-CRM-Dispatcher/1.0',
+    };
+
+    if (securityToken) {
+      const headerName = (authHeaderName || 'Authorization').trim();
+      const format = authHeaderType || 'bearer';
+      headers[headerName] = format === 'raw' ? securityToken : `Bearer ${securityToken}`;
+      headers['x-api-key'] = securityToken;
+      headers['x-webhook-token'] = securityToken;
+    }
+
+    const crmRes = await fetch(webhookUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    const contentType = crmRes.headers.get('content-type') || '';
+    let responseData: any = null;
+    if (contentType.includes('application/json')) {
+      responseData = await crmRes.json().catch(() => null);
+    } else {
+      responseData = await crmRes.text().catch(() => null);
+    }
+
+    res.json({
+      success: crmRes.ok,
+      statusCode: crmRes.status,
+      statusText: crmRes.statusText,
+      data: responseData,
+    });
+  } catch (err: any) {
+    console.error('Server CRM proxy error:', err?.message || err);
+    res.status(502).json({
+      success: false,
+      error: err?.message || 'Failed to dispatch payload to CRM webhook',
+    });
+  }
+});
+
 // User routes (Firebase Auth verification)
 app.get('/api/users', requireAuth, async (req: AuthRequest, res) => {
   try {

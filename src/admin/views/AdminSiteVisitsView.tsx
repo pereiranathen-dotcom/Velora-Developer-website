@@ -28,13 +28,15 @@ import {
   ArrowRight,
   ShieldCheck,
   Send,
+  Radio,
 } from 'lucide-react';
 import { useStore } from '../../hooks/useStore';
 import { StoreService } from '../../services/store';
 import { SiteVisitRequest, Lead } from '../../types';
+import { CRMService } from '../../services/crmService';
 
 export const AdminSiteVisitsView: React.FC = () => {
-  const { siteVisits, projects, leads, adminUsers } = useStore();
+  const { siteVisits, projects, leads, adminUsers, crmSettings } = useStore();
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +56,21 @@ export const AdminSiteVisitsView: React.FC = () => {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const handleSyncVisitToCRM = async (visit: SiteVisitRequest, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!crmSettings.enabled || !crmSettings.webhookUrl?.trim()) {
+      showToast('⚠️ Please configure and enable CRM Webhook in Settings first.');
+      return;
+    }
+    showToast(`Dispatching site visit for "${visit.customerName}" to CRM...`);
+    const res = await CRMService.dispatchSiteVisit(visit);
+    if (res.success) {
+      showToast(`✓ Site visit for "${visit.customerName}" forwarded to CRM!`);
+    } else {
+      showToast(`CRM Notice: ${res.message}`);
+    }
   };
 
   // Form state for creating / editing a site visit

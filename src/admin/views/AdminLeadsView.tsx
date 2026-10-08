@@ -25,13 +25,17 @@ import {
   Send,
   Building,
   AlertCircle,
+  Radio,
+  RefreshCw,
 } from 'lucide-react';
 import { useStore } from '../../hooks/useStore';
 import { StoreService } from '../../services/store';
 import { Lead, SiteVisitRequest } from '../../types';
+import { CRMService } from '../../services/crmService';
 
 export const AdminLeadsView: React.FC = () => {
-  const { leads, projects, siteVisits, adminUsers } = useStore();
+  const { leads, projects, siteVisits, adminUsers, crmSettings } = useStore();
+  const [isSyncingCRM, setIsSyncingCRM] = useState(false);
 
   // Filter & Search states
   const [search, setSearch] = useState('');
@@ -77,6 +81,45 @@ export const AdminLeadsView: React.FC = () => {
   const customerLeads = useMemo(() => {
     return leads.filter((l) => l.source !== 'Channel Partner');
   }, [leads]);
+
+  const pendingCRMCount = useMemo(() => {
+    return customerLeads.filter((l) => l.crmStatus !== 'synced').length;
+  }, [customerLeads]);
+
+  const handleSyncLeadToCRM = async (lead: Lead, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!crmSettings.enabled || !crmSettings.webhookUrl?.trim()) {
+      showToast('⚠️ Please configure and enable CRM Webhook in Settings first.');
+      return;
+    }
+    showToast(`Dispatching lead "${lead.name}" to CRM...`);
+    const res = await CRMService.dispatchLead(lead, 'lead');
+    if (res.success) {
+      showToast(`✓ Lead "${lead.name}" (${lead.id}) forwarded to CRM successfully!`);
+    } else {
+      showToast(`CRM Notice: ${res.message}`);
+    }
+  };
+
+  const handleSyncAllPendingToCRM = async () => {
+    if (!crmSettings.enabled || !crmSettings.webhookUrl?.trim()) {
+      showToast('⚠️ Please configure and enable CRM Webhook in Settings first.');
+      return;
+    }
+    const unsynced = customerLeads.filter((l) => l.crmStatus !== 'synced');
+    if (unsynced.length === 0) {
+      showToast('✓ All customer leads are already synced to your CRM!');
+      return;
+    }
+    setIsSyncingCRM(true);
+    let successCount = 0;
+    for (const lead of unsynced) {
+      const res = await CRMService.dispatchLead(lead, 'lead');
+      if (res.success) successCount++;
+    }
+    setIsSyncingCRM(false);
+    showToast(`✓ Forwarded ${successCount} of ${unsynced.length} leads to CRM!`);
+  };
 
   // Map of leads that have an existing site visit
   const leadSiteVisitsMap = useMemo(() => {
@@ -410,6 +453,18 @@ export const AdminLeadsView: React.FC = () => {
             <span className="hidden sm:inline">Export</span> Leads CSV
           </button>
 
+          {crmSettings.enabled && (
+            <button
+              onClick={handleSyncAllPendingToCRM}
+              disabled={isSyncingCRM}
+              className="bg-[#00291E] hover:bg-[#003D2B] text-[#C9A24A] border border-[#C9A24A]/40 text-xs font-semibold px-3.5 py-2 rounded flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Forward unsynced leads to CRM webhook"
+            >
+              <Radio className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{isSyncingCRM ? 'Syncing...' : `Forward to CRM (${pendingCRMCount})`}</span>
+            </button>
+          )}
+
           <button
             onClick={() => setIsAddLeadModalOpen(true)}
             className="bg-gradient-to-r from-[#C9A24A] via-[#DDB75C] to-[#C9A24A] hover:brightness-105 active:scale-[0.98] text-[#00291E] font-bold text-xs tracking-wider uppercase px-4 py-2 rounded shadow flex items-center gap-1.5 transition-all"
@@ -665,6 +720,7 @@ export const AdminLeadsView: React.FC = () => {
                   <th className="py-3 px-4">Site Visit Link</th>
                   <th className="py-3 px-4">Assigned Advisor</th>
                   <th className="py-3 px-4">Date / Source</th>
+                  <th className="py-3 px-4">CRM Status</th>
                   <th className="py-3 px-4 text-right">Quick Interactive Actions</th>
                 </tr>
               </thead>
@@ -744,9 +800,53 @@ export const AdminLeadsView: React.FC = () => {
                         <div className="text-[9px] text-[#26342D]/50">{lead.source || 'Website'}</div>
                       </td>
 
+                      {/* CRM Status */}
+                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
+                        {lead.crmStatus === 'synced' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <Check className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>Synced</span>
+                          </span>
+                        ) : lead.crmStatus === 'failed' ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleSyncLeadToCRM(lead, e)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 border border-red-300 hover:bg-red-200 transition-colors"
+                            title={lead.crmError || 'Failed to deliver to CRM. Click to retry.'}
+                          >
+                            <AlertCircle className="w-2.5 h-2.5 text-red-600" />
+                            <span>Retry CRM</span>
+                          </button>
+                        ) : crmSettings.enabled ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleSyncLeadToCRM(lead, e)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors"
+                            title="Click to forward this lead to CRM"
+                          >
+                            <Radio className="w-2.5 h-2.5 text-amber-600" />
+                            <span>Push CRM</span>
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-[#26342D]/40 font-mono">Off</span>
+                        )}
+                      </td>
+
                       {/* Interactive Action Buttons */}
                       <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Push to CRM Button */}
+                          {crmSettings.enabled && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleSyncLeadToCRM(lead, e)}
+                              className="p-1.5 text-[#00291E] hover:text-[#C9A24A] bg-[#F8F0D8] rounded transition-colors"
+                              title={lead.crmStatus === 'synced' ? 'Resend to CRM' : 'Forward to CRM'}
+                            >
+                              <Radio className="w-3.5 h-3.5 text-[#00291E]" />
+                            </button>
+                          )}
+
                           {/* Call Button */}
                           <a
                             href={`tel:${lead.phone}`}

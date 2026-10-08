@@ -11,6 +11,7 @@ import {
   AdminUser,
   PromotionalPopupSettings,
   ChannelPartnerContent,
+  CRMIntegrationSettings,
 } from '../types';
 
 // Curated high-res imagery matching the exact visual references
@@ -682,6 +683,17 @@ export const INITIAL_SEO_SETTINGS: SEOSettings = {
   keywords: 'Velora Developers, Amrutvan, Green Opulence, Mandangad plots, Ratnagiri NA plots, Konkan real estate, luxury plotted development',
   ogImage: ASSETS.heroEntrance,
   googleAnalyticsId: 'G-VELORA2026',
+};
+
+export const INITIAL_CRM_SETTINGS: CRMIntegrationSettings = {
+  enabled: typeof import.meta !== 'undefined' ? Boolean(import.meta.env?.VITE_CRM_WEBHOOK_URL) : false,
+  webhookUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CRM_WEBHOOK_URL) || '',
+  securityToken: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CRM_SECURITY_TOKEN) || '',
+  authHeaderName: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CRM_AUTH_HEADER_NAME) || 'Authorization',
+  authHeaderType: ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_CRM_AUTH_HEADER_TYPE) || 'bearer') as 'bearer' | 'raw',
+  sendOnWebsiteLead: true,
+  sendOnSiteVisit: true,
+  sendOnChannelPartner: true,
 };
 
 export const INITIAL_ADMIN_USERS: AdminUser[] = [

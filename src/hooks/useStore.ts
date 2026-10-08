@@ -13,6 +13,7 @@ import {
   AdminUser,
   PromotionalPopupSettings,
   ChannelPartnerContent,
+  CRMIntegrationSettings,
 } from '../types';
 
 export function useStore() {
@@ -29,6 +30,7 @@ export function useStore() {
   const [settings, setSettings] = useState<ContactSettings>(StoreService.getContactSettings);
   const [seo, setSeo] = useState<SEOSettings>(StoreService.getSEOSettings);
   const [popupSettings, setPopupSettings] = useState<PromotionalPopupSettings>(StoreService.getPopupSettings);
+  const [crmSettings, setCrmSettings] = useState<CRMIntegrationSettings>(StoreService.getCRMSettings);
   const [isAdmin, setIsAdmin] = useState<boolean>(StoreService.isAdminAuthenticated);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(StoreService.getAdminUsers);
   const [currentUser, setCurrentUser] = useState<AdminUser>(StoreService.getCurrentUser);
@@ -46,6 +48,7 @@ export function useStore() {
       setSettings(StoreService.getContactSettings());
       setSeo(StoreService.getSEOSettings());
       setPopupSettings(StoreService.getPopupSettings());
+      setCrmSettings(StoreService.getCRMSettings());
       setIsAdmin(StoreService.isAdminAuthenticated());
       setAdminUsers(StoreService.getAdminUsers());
       setCurrentUser(StoreService.getCurrentUser());
@@ -76,6 +79,7 @@ export function useStore() {
     settings,
     seo,
     popupSettings,
+    crmSettings,
     isAdmin,
     adminUsers,
     currentUser,
